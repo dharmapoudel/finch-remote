@@ -44,6 +44,12 @@ const END_WATCH_MS = 5000;
 // How close to the end (by our clock) before we start polling the phone
 // directly instead of waiting for its end-of-track snapshot.
 const END_POLL_WINDOW_MS = 10_000;
+// Pause-yield: the companion never releases the iOS audio session on pause
+// (its keepalive re-asserts exclusive every ~10s), so a pause that idles
+// this long gets "abandoned" — we play the track at its very end so the
+// companion sees a natural end and yields the session. Short pauses are
+// untouched; resume always works with one tap from the saved position.
+const ABANDON_AFTER_PAUSE_MS = 60_000;
 // Remote mode: server session polls. Position only needs to be
 // fresh enough for the progress bar; commands are instant.
 // Remote-mode poll: a steady drip of tiny /Sessions reads keeps Finch in
@@ -165,6 +171,15 @@ export class PlaybackEngine {
   // Consecutive poll transport failures; the backstop for link drops the
   // gateway snapshot feed doesn't report.
   private remoteTransportFails = 0;
+  // Pause-yield abandon (see ABANDON_AFTER_PAUSE_MS): while a companion-mode
+  // pause idles, a timer eventually plays the track at its very end so the
+  // companion yields the iOS audio session. abandonedAfterPause marks that
+  // the phone's player is sitting on the ended item; abandonIndex /
+  // abandonPositionMs are the one-tap resume target.
+  private abandonTimer: number | null = null;
+  private abandonedAfterPause = false;
+  private abandonIndex = -1;
+  private abandonPositionMs = 0;
 
   configure(jf: JellyfinClient | null): void {
     this.jf = jf;
@@ -328,6 +343,64 @@ export class PlaybackEngine {
     }
   }
 
+  // Pause-yield abandon (see ABANDON_AFTER_PAUSE_MS). The companion never
+  // releases the iOS audio session on pause, and its ~10s keepalive keeps
+  // re-asserting exclusive — so Finamp on the phone gets fought for focus.
+  // After a pause idles long enough we play the track at its very end: the
+  // zero-length tail finishes instantly, the companion sees a natural end
+  // (or a load failure — both yield the session), tears down Now Playing
+  // and its remote commands, and its keepalive drops to mixed. The user
+  // never sees any of this: the UI stays "paused", and resume re-plays
+  // from the saved position with one tap.
+  private armAbandonTimer(): void {
+    this.clearAbandonTimer();
+    this.abandonIndex = this.index;
+    this.abandonPositionMs = this.positionNow();
+    this.abandonTimer = window.setTimeout(() => {
+      this.abandonTimer = null;
+      void this.abandonAfterPause();
+    }, ABANDON_AFTER_PAUSE_MS);
+  }
+
+  private clearAbandonTimer(): void {
+    if (this.abandonTimer !== null) {
+      window.clearTimeout(this.abandonTimer);
+      this.abandonTimer = null;
+    }
+  }
+
+  private disarmAbandon(): void {
+    this.clearAbandonTimer();
+    this.abandonedAfterPause = false;
+  }
+
+  private async abandonAfterPause(): Promise<void> {
+    const t = this.queue[this.abandonIndex];
+    const durMs = t?.durationMs ?? 0;
+    if (!t || !this.jf || !(durMs > 0)) return;
+    // Only while still paused in companion mode on the same track. Any
+    // user transport action meanwhile (resume, skip, seek, new play)
+    // disarmed the timer first, so reaching here means true idle.
+    if (this.intentPlaying || this.remoteActive || this.external) return;
+    if (this.abandonedAfterPause || this.index !== this.abandonIndex) return;
+    // Mark first: a resume racing this send must take the playAt path,
+    // and the stale end can never advance the queue (snapshot guards below).
+    this.abandonedAfterPause = true;
+    try {
+      await getClient().player.play({
+        uri: this.streamUrl(t, durMs),
+        context: { contextUri: `${CONTEXT_PREFIX}${t.id}` },
+      });
+      // Server hygiene: the session is over — don't leave it "paused" forever.
+      void this.jf.reportStopped(t.id, this.sessionId, this.abandonPositionMs).catch(() => {});
+    } catch {
+      // The link is down: the session stays claimed, no worse than today.
+      // Clear the flag so resume() takes the normal path; the next user
+      // pause re-arms the timer.
+      this.abandonedAfterPause = false;
+    }
+  }
+
   async playQueue(tracks: Track[], startIndex = 0, shuffle = this.shuffle): Promise<void> {
     if (!tracks.length || !this.jf) return;
     if (this.remoteActive) {
@@ -371,6 +444,8 @@ export class PlaybackEngine {
   private async playAt(i: number, startMs = 0): Promise<void> {
     const track = this.queue[i];
     if (!track || !this.jf) return;
+    // Any real play supersedes a pending or completed pause-yield abandon.
+    this.disarmAbandon();
     const gen = ++this.playGen;
     const prev = this.current();
     if (prev && prev.id !== track.id) {
@@ -445,7 +520,21 @@ export class PlaybackEngine {
         this.clearProgressTimer();
         this.emit();
         await client.player.pause();
+        // Arm the pause-yield: if this pause idles long enough, the track
+        // is abandoned at its end so the phone yields its audio session.
+        this.armAbandonTimer();
       } else {
+        this.clearAbandonTimer();
+        // After a pause-yield abandon the phone's player is sitting on an
+        // ended item, so resume() would just fail — re-play from the saved
+        // position instead. One tap, same as a normal resume.
+        if (this.abandonedAfterPause) {
+          const idx = this.abandonIndex >= 0 ? this.abandonIndex : this.index;
+          const pos = this.abandonPositionMs;
+          this.abandonedAfterPause = false;
+          await this.playAt(idx, pos);
+          return;
+        }
         // After a phone-side failure ("Playback failed") the phone's
         // player is dead: resume() just fails again and loops the error.
         // Restart the track instead so one tap recovers.
@@ -494,6 +583,7 @@ export class PlaybackEngine {
       else {
         this.intentPlaying = false;
         this.clearProgressTimer();
+        this.disarmAbandon();
         const t = this.current();
         if (t) void this.jf?.reportStopped(t.id, this.sessionId, this.positionNow()).catch(() => {});
         this.emit();
@@ -546,6 +636,11 @@ export class PlaybackEngine {
     const clamped = Math.max(0, Math.min(ms, this.durationMs || ms));
     this.positionMs = clamped;
     this.positionAt = Date.now();
+    // A seek while paused moves the pause-yield resume target too, so a
+    // later resume lands where the user scrubbed to, not where they paused.
+    if (this.abandonTimer !== null || this.abandonedAfterPause) {
+      this.abandonPositionMs = clamped;
+    }
     this.emit();
     if (this.remoteActive) {
       // No Bluetooth pacing needed: one server command seeks the client.
@@ -1121,6 +1216,11 @@ export class PlaybackEngine {
     // snapshots from before it landed are stale.
     const pauseGrace = Date.now() - this.lastPauseAt < PAUSE_GRACE_MS;
     if (pb.state === 'playing') {
+      // Our own pause-yield abandon: the companion briefly reports
+      // "playing" for the zero-length end-of-track item. It isn't real
+      // playback — never resurrect intentPlaying or arm the end-watch for
+      // it, or the queue would auto-advance into the next track.
+      if (this.abandonedAfterPause) return;
       // A stale "playing" snapshot must not resurrect intentPlaying right
       // after the user paused: it flips the UI back to playing, keeps the
       // lyrics/progress moving, and arms the "stopped" branch below to
@@ -1168,8 +1268,10 @@ export class PlaybackEngine {
       }
       this.emit();
     } else if (pb.state === 'paused') {
-      // same paced-seek guard as the playing branch above
-      if (this.pendingSeekMs === null) {
+      // same paced-seek guard as the playing branch above; the abandon
+      // item's end position must not snap our paused clock to the cap
+      // (resume uses the saved abandon position, not this).
+      if (this.pendingSeekMs === null && !this.abandonedAfterPause) {
         this.positionMs = pb.positionMs;
         this.positionAt = Date.now();
       }

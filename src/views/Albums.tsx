@@ -60,7 +60,7 @@ export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
   const albumTile = (a: Album) => (
     <Tile
       key={a.id}
-      size={130}
+      size={120}
       title={a.name}
       subtitle={a.artist || undefined}
       art={art?.albumArt(a) ?? null}

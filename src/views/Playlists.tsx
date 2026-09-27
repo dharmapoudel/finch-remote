@@ -38,7 +38,7 @@ export default function PlaylistsHome({ jf, nav, openMenu }: ViewProps) {
   const tile = (p: AnyPlaylist) => (
     <Tile
       key={p.id}
-      size={130}
+      size={120}
       title={p.name}
       subtitle={p.songCount ? `${p.songCount} tracks` : undefined}
       art={art?.playlistArt(p) ?? null}
