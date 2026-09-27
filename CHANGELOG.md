@@ -281,3 +281,6 @@
 - New proper shuffle icon (two crossing arrows, stroke-based) replacing the X glyph.
 - Shuffle button now does a full Fisher-Yates shuffle — every position is random including the first song (was: first song always played first, rest shuffled).
 - Tapping a track in playlist/album detail sets the full list as the queue in order, positioned at the tapped song (explicit no-shuffle; same for Favorites and Recents).
+
+## 1.0.56
+- Removed the 1.0.53 proactive player-state query on gateway connect: feeding a stale paused snapshot through the snapshot path could arm the pause-yield abandon, which then briefly played audio ("sound for a second"). The abandon still arms on real-time pauses. The underlying stuck-audio-session bug is fixed in the iOS companion (PR JoeyEamigh/bridgething#18); until that ships, force-quit the companion app once to clear a stuck exclusive hold.
