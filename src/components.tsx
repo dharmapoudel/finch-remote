@@ -597,13 +597,13 @@ export function Rail({
 }) {
   return (
     <section className="mb-7 shrink-0">
-      <div className="mb-3 flex items-center justify-between px-5">
+      <div className="relative mb-3 flex items-center px-5">
         <h2 className="text-xs font-semibold uppercase tracking-[0.22em] text-white/80">{title}</h2>
         {onSeeAll ? (
           <button
             type="button"
             onClick={onSeeAll}
-            className="rounded-full px-4 py-2 text-lg font-medium text-goldlight active:bg-white/10"
+            className="absolute top-1/2 right-5 -translate-y-1/2 rounded-full px-4 py-2 text-lg font-medium text-goldlight active:bg-white/10"
           >
             See all
           </button>
