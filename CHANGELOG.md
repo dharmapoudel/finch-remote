@@ -300,3 +300,6 @@
 ## 1.0.61
 - Play-on handoff no longer strands you: the Play command is sent BEFORE pausing local audio, and if the phone link is down it aborts cleanly back to local mode instead of attaching to a dead session.
 - Queue restore fix: adopting the live track on restart now brings back the full saved queue when the track belongs to it, instead of collapsing a playlist into one track. Clearing the queue also clears the saved copy.
+
+## 1.0.62
+- Auto-advance link stability: the end-of-track watchdog now polls every 2s (was 5s) in the last 10 seconds, so the next track starts faster — a slow end-detect left silence that let iOS suspend the backgrounded companion and drop the link. Auto-advance also skips the play attempt when the link is already down instead of flashing an error; the reconnect handler advances the queue when the link comes back.

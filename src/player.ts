@@ -40,9 +40,12 @@ const SEEK_PACE_MS = 800;
 // close to the duration a "paused" snapshot must be to count as the natural
 // end; the watchdog below re-checks every END_WATCH_MS as a backstop.
 const END_EPS_MS = 2000;
-const END_WATCH_MS = 5000;
+const END_WATCH_MS = 2000;
 // How close to the end (by our clock) before we start polling the phone
-// directly instead of waiting for its end-of-track snapshot.
+// directly instead of waiting for its end-of-track snapshot. The poll is
+// frequent (every END_WATCH_MS) because a slow end-detect leaves silence
+// that lets iOS suspend the backgrounded companion, dropping the link
+// before we can advance — the "lost auto-advance".
 const END_POLL_WINDOW_MS = 10_000;
 // Pause-yield: the companion never releases the iOS audio session on pause
 // (its keepalive re-asserts exclusive every ~10s), so a pause that idles
@@ -622,6 +625,10 @@ export class PlaybackEngine {
       this.remoteCommand('NextTrack');
       return;
     }
+    // Auto-advance with a dead link: the play would just fail and flash an
+    // error. Leave the queue parked; handleGateway advances on reconnect
+    // (the "lost auto-advance" path).
+    if (auto && this.gatewayUp === false) return;
     if (this.repeat === 'one' && auto) {
       await this.playAt(this.index);
       return;
