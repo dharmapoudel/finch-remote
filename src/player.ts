@@ -1164,6 +1164,24 @@ export class PlaybackEngine {
   // Feed gateway (phone Bluetooth) connection transitions here. Finch is
   // otherwise blind to link drops: snapshots keep arriving with the
   // daemon's extrapolated position while the phone restarts the track.
+  // Ask the companion for its player state on (re)connect and feed it
+  // through the normal snapshot path. A stuck companion sends nothing on
+  // its own; without this the pause-yield abandon never arms for it.
+  private async proactiveStateQuery(): Promise<void> {
+    try {
+      const res = await getClient().player.stateGet();
+      if (!res.ok) return;
+      const st = res.response.state;
+      const pb = st.playback;
+      this.handleSnapshot({
+        context: st.context ? { uri: st.context.uri } : null,
+        playback: { state: pb.state, positionMs: pb.positionMs },
+      });
+    } catch {
+      // best effort; the remote poll covers the rest
+    }
+  }
+
   handleGateway(connected: boolean): void {
     const prev = this.gatewayUp;
     this.gatewayUp = connected;
@@ -1209,6 +1227,13 @@ export class PlaybackEngine {
     }
     if (!connected) return; // drop: nothing to heal until it comes back
     this.lastReconnectAt = Date.now();
+    // Proactive state query: a stuck companion (e.g. iOS holding the audio
+    // session exclusive after a pause, with streamActive never cleared)
+    // sends no snapshot on its own, so the pause-yield abandon never arms
+    // and the phone's other audio stays blocked. Ask for the state and feed
+    // it through the normal path — a paused-while-idle companion then
+    // yields via the abandon timer.
+    void this.proactiveStateQuery();
     const t = this.current();
     if (!this.intentPlaying || !t || this.external) return;
     if (this.positionNow() < RECONNECT_HEAL_MIN_MS) return; // just started; nothing to restore

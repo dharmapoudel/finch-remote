@@ -222,9 +222,15 @@ export default function App() {
   const view = stack[stack.length - 1];
   const viewRef = useRef(view);
   viewRef.current = view;
+  const stackRef = useRef(stack);
+  stackRef.current = stack;
   // Where Now Playing was opened from; it minimizes back here
   // (its nav replaces the stack, so back() can't).
   const returnViewRef = useRef<View>({ name: 'home' });
+  // The full stack from before Now Playing replaced it; minimizing
+  // restores this so back() from the return view pops to its parent
+  // instead of being a no-op on a single-item stack.
+  const stackBeforeNpRef = useRef<View[] | null>(null);
 
   const load = useCallback(async () => {
     setCredsState('loading');
@@ -334,6 +340,7 @@ export default function App() {
     // and M/swipe-down landed on the wrong screen.
     if (v.name === 'nowplaying' && cur.name !== 'nowplaying' && cur.name !== 'setup') {
       returnViewRef.current = cur;
+      stackBeforeNpRef.current = stackRef.current;
     }
     const isRoot =
       v.name === 'home' ||
@@ -374,8 +381,11 @@ export default function App() {
 
   const minimizeNowPlaying = useCallback(() => {
     // Now Playing replaced the stack on open, so minimizing restores the
-    // single origin view — back from there won't resurrect Now Playing.
-    setStack([returnViewRef.current]);
+    // whole pre-Now-Playing stack — back from the return view pops to its
+    // parent instead of being stuck on a single-item stack.
+    const s = stackBeforeNpRef.current;
+    stackBeforeNpRef.current = null;
+    setStack(s && s.length ? s : [returnViewRef.current]);
   }, []);
 
   const back = useCallback(() => {
