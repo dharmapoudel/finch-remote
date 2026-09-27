@@ -279,7 +279,12 @@ export class PlaybackEngine {
     // reconnect heal, not this timer.
     this.endWatchTimer = window.setInterval(() => {
       const t = this.current();
-      if (!t || !this.intentPlaying || this.awaitingStart || this.external) return;
+      // awaitingStart only blocks while the phone is still spinning up; a
+      // stale one (quiet phone that never confirmed "playing") must not
+      // disable the backstop — the poll below asks the phone directly.
+      const spinningUp =
+        this.awaitingStart && Date.now() - this.lastPlayAt < PLAY_GRACE_MS;
+      if (!t || !this.intentPlaying || spinningUp || this.external) return;
       if (this.gatewayUp === false) return;
       const durMs = t.durationMs;
       if (!(durMs > 0)) return;
@@ -296,6 +301,13 @@ export class PlaybackEngine {
   }
 
   private endPolling = false;
+
+  // Consecutive end-polls where the phone reports "playing" but its
+  // position isn't advancing while our clock sits at the duration cap.
+  // Covers a quiet/stale companion that never sends its end signal: after
+  // a few stuck polls the track is treated as over and we advance.
+  private stuckEndPolls = 0;
+  private lastEndPollPosMs = 0;
 
   private async pollEndOfTrack(trackId: string, durMs: number): Promise<void> {
     if (this.endPolling) return;
@@ -324,6 +336,25 @@ export class PlaybackEngine {
         pb.state === 'playing' && pb.positionMs >= durMs - END_EPS_MS
       ) {
         void this.next(true);
+      }
+      // Stuck-phone backstop: our clock is at the cap but the phone keeps
+      // reporting "playing" from behind without its position advancing
+      // (stale cache / quiet companion that never sends its end signal).
+      // A buffering stall looks the same briefly, so require several
+      // consecutive stuck polls before treating the track as over.
+      const atCap = this.positionNow() >= durMs - END_EPS_MS;
+      if (pb.state === 'playing' && atCap && pb.positionMs < durMs - END_EPS_MS) {
+        if (pb.positionMs <= this.lastEndPollPosMs + 1000) this.stuckEndPolls++;
+        else this.stuckEndPolls = 0;
+        this.lastEndPollPosMs = pb.positionMs;
+        if (this.stuckEndPolls >= 3) {
+          this.stuckEndPolls = 0;
+          this.lastEndPollPosMs = 0;
+          if (this.current()?.id === trackId) void this.next(true);
+        }
+      } else {
+        this.stuckEndPolls = 0;
+        this.lastEndPollPosMs = 0;
       }
     } catch {
       // link hiccup mid-poll: skip this tick, the next one retries
@@ -474,6 +505,14 @@ export class PlaybackEngine {
           context: { contextUri: `${CONTEXT_PREFIX}${track.id}` },
         });
         if (gen !== this.playGen) return;
+        // Optimistic intent: don't wait for the phone to echo "playing" —
+        // a quiet companion may never send it, which would leave
+        // intentPlaying false (and awaitingStart stuck true) and silently
+        // disable the end-of-track backstop, stranding the queue.
+        // awaitingStart still guards the transient post-play "stopped".
+        this.intentPlaying = true;
+        this.stuckEndPolls = 0;
+        this.lastEndPollPosMs = 0;
         void this.jf!.reportPlaying(track.id, this.sessionId);
         this.armProgressTimer();
         void this.persist();
@@ -547,6 +586,14 @@ export class PlaybackEngine {
         this.lastPauseAt = 0;
         this.emit();
         await client.player.resume();
+        // Optimistic intent: the phone doesn't reliably echo "playing"
+        // after a resume (quiet companion), and the end-of-track backstop
+        // runs on intentPlaying — without this a resume could strand the
+        // queue at track end. Timers were cleared on pause; re-arm them
+        // now instead of waiting for a snapshot that may never come.
+        this.intentPlaying = true;
+        this.ensureTimers();
+        this.emit();
       }
       void this.persist();
     } catch {
@@ -584,6 +631,8 @@ export class PlaybackEngine {
         this.intentPlaying = false;
         this.clearProgressTimer();
         this.disarmAbandon();
+        this.stuckEndPolls = 0;
+        this.lastEndPollPosMs = 0;
         const t = this.current();
         if (t) void this.jf?.reportStopped(t.id, this.sessionId, this.positionNow()).catch(() => {});
         this.emit();
@@ -1212,6 +1261,12 @@ export class PlaybackEngine {
       this.external = false;
     }
     const pb = state.playback;
+    // A fresh snapshot proves the phone spun up; a stale awaitingStart
+    // (quiet phone that never sent "playing") must not neuter the
+    // paused-end / stopped branches below forever.
+    if (this.awaitingStart && Date.now() - this.lastPlayAt > PLAY_GRACE_MS) {
+      this.awaitingStart = false;
+    }
     // True while a user-initiated pause is still travelling to the phone;
     // snapshots from before it landed are stale.
     const pauseGrace = Date.now() - this.lastPauseAt < PAUSE_GRACE_MS;
@@ -1306,6 +1361,14 @@ export class PlaybackEngine {
         return;
       }
       this.awaitingStart = false;
+      // A stale "stopped" for a track we already left must not double-
+      // advance into the next one. Only when the companion echoes context —
+      // context-less companions report null and keep the old behavior.
+      if (this.snapTrackId !== null && this.snapTrackId !== this.current()?.id) {
+        this.intentPlaying = false;
+        this.emit();
+        return;
+      }
       if (this.intentPlaying) {
         this.intentPlaying = false;
         this.emit();

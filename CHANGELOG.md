@@ -1,3 +1,6 @@
+## 1.0.47
+- Queue auto-advance made reliable: play and resume now set the playing intent optimistically instead of waiting for the phone to echo "playing" — a quiet companion (its end confirmation lost over Bluetooth) used to leave the end-of-track backstop silently disabled and strand the queue. A stale spin-up guard no longer blocks the backstop or the paused/stopped end branches, a stuck-phone backstop advances after several polls with a non-advancing position at the duration cap, and a stale "stopped" for an already-left track can't double-advance.
+
 ## 1.0.10
 - Bluetooth diet: ALL phone-tunnel traffic (JSON, artwork, remote commands) now flows through one shared 3-slot gate, so the phone is never asked to juggle ~9 concurrent fully-buffered fetches at once — the thing that was wedging the companion and stalling the link on app load. User taps (pause/next/seek/play) jump the queue.
 - Artwork goes on a diet: tiles 300px/q90 -> 256px/q80, hero 600px -> 512px (~40% fewer bytes per image), and art is now cached persistently in the daemon store (48 most recent) — a cold start reuses art it already saw without downloading a byte.
