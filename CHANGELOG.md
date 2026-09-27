@@ -284,3 +284,6 @@
 
 ## 1.0.56
 - Removed the 1.0.53 proactive player-state query on gateway connect: feeding a stale paused snapshot through the snapshot path could arm the pause-yield abandon, which then briefly played audio ("sound for a second"). The abandon still arms on real-time pauses. The underlying stuck-audio-session bug is fixed in the iOS companion (PR JoeyEamigh/bridgething#18); until that ships, force-quit the companion app once to clear a stuck exclusive hold.
+
+## 1.0.57
+- Fixed the audio-focus theft: removed the two AUTOMATIC arming paths of the pause-yield abandon (adopting a stale paused track on launch, and the snapshot paused branch). These sent an unsolicited Player::Play 15s after app launch whenever the companion reported a paused Finch track — and every Play grabs the iOS audio session exclusive, interrupting other apps before the zero-length tail finished and released it. The abandon still fires for genuine user-initiated pauses (60s timer via toggle()).
