@@ -95,7 +95,7 @@ export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
             {recentAlbums ? (
               recentAlbums.length > 0 ? (
                 <Rail
-                  title="Recently played albums"
+                  title="Recent albums"
                   onSeeAll={
                     recentAlbums.length > RAIL_N
                       ? () => nav({ name: 'albumlist', kind: 'recent' })
@@ -142,7 +142,7 @@ function BoundedAlbumListView({
   kind,
 }: ViewProps & { kind: 'favorites' | 'recent' }) {
   const art = useArt();
-  const title = kind === 'favorites' ? 'Favorite albums' : 'Recently played albums';
+  const title = kind === 'favorites' ? 'Favorite albums' : 'Recent albums';
   const list = useBounded<Album>(
     `albums:${kind}:all`,
     () =>
