@@ -296,3 +296,7 @@
 
 ## 1.0.60
 - Detail screen goes compact in portrait: slimmer top bar, smaller hero art (96px), smaller title and buttons, so the track list starts near the top instead of below the fold.
+
+## 1.0.61
+- Play-on handoff no longer strands you: the Play command is sent BEFORE pausing local audio, and if the phone link is down it aborts cleanly back to local mode instead of attaching to a dead session.
+- Queue restore fix: adopting the live track on restart now brings back the full saved queue when the track belongs to it, instead of collapsing a playlist into one track. Clearing the queue also clears the saved copy.

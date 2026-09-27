@@ -965,23 +965,36 @@ export class PlaybackEngine {
     this.external = false;
     this.awaitingStart = false;
     this.emit();
-    try {
-      await getClient().player.pause();
-    } catch {
-      // companion may have nothing playing; ignore
-    }
-    if (gen !== this.remoteGen) return;
+    // Set the session first so remotePlayNow/heal can use it, then attempt
+    // the handoff BEFORE pausing local audio: if the phone link is down the
+    // Play command can't reach the server, and we must stay in local mode
+    // instead of stranding the user with no audio and a link error.
     this.remoteSessionId = sessionId;
     this.remoteClient = client;
     this.remoteDevice = deviceName;
     if (hasLocalTrack) {
       try {
         await this.remotePlayNow(localQueue, localIndex);
-      } catch {
-        // handoff failed; fall through to mirroring the remote session
+      } catch (e) {
+        // Handoff failed: abort cleanly, keep local playback untouched.
+        this.remoteSessionId = null;
+        this.remoteClient = '';
+        this.remoteDevice = '';
+        this.loading = false;
+        const serverSaid = e instanceof JellyfinError && e.status !== 0;
+        this.error = serverSaid ? 'Could not reach the player.' : 'The phone link dropped.';
+        this.errorDetail = serverSaid && e instanceof Error ? e.message : null;
+        this.emit();
+        return;
       }
       if (gen !== this.remoteGen) return;
     }
+    try {
+      await getClient().player.pause();
+    } catch {
+      // companion may have nothing playing; ignore
+    }
+    if (gen !== this.remoteGen) return;
     await this.pollRemote();
     if (gen !== this.remoteGen) return;
     this.loading = false;
@@ -1418,25 +1431,40 @@ export class PlaybackEngine {
   }
 
   // Adopt a track the phone is already playing into an empty queue.
+  // If the track belongs to the saved queue, bring back the whole queue
+  // positioned at it — a restart must not collapse a playlist into one
+  // track and persist over the fuller save.
+  private async adoptLiveTrack(t: Track, positionMs: number, playing: boolean): Promise<void> {
+    const saved = await this.loadPersisted();
+    const si = saved ? saved.tracks.findIndex(x => x.id === t.id) : -1;
+    if (si >= 0 && saved) {
+      this.queue = saved.tracks;
+      this.index = si;
+      this.durationMs = saved.tracks[si].durationMs;
+    } else {
+      this.queue = [t];
+      this.index = 0;
+      this.durationMs = t.durationMs;
+    }
+    this.positionMs = Math.max(0, positionMs);
+    this.positionAt = Date.now();
+    this.intentPlaying = playing;
+    this.loading = false;
+    this.awaitingStart = false;
+    this.external = false;
+    this.error = null;
+    this.errorDetail = null;
+    this.emit();
+    void this.persist();
+  }
+
   private async adoptTrackId(id: string, positionMs: number, playing: boolean): Promise<void> {
     if (!this.jf || this.current() || this.adopting === id) return;
     this.adopting = id;
     try {
       const t = await this.jf.trackById(id);
       if (this.current()) return; // something started meanwhile
-      this.queue = [t];
-      this.index = 0;
-      this.durationMs = t.durationMs;
-      this.positionMs = Math.max(0, positionMs);
-      this.positionAt = Date.now();
-      this.intentPlaying = playing;
-      this.loading = false;
-      this.awaitingStart = false;
-      this.external = false;
-      this.error = null;
-      this.errorDetail = null;
-      this.emit();
-      void this.persist();
+      await this.adoptLiveTrack(t, positionMs, playing);
     } catch {
       // leave the queue empty; a later snapshot or reconcile will retry
     } finally {
@@ -1460,18 +1488,7 @@ export class PlaybackEngine {
     try {
       const np = await this.jf.serverNowPlaying();
       if (np && !this.current()) {
-        this.queue = [np.track];
-        this.index = 0;
-        this.durationMs = np.track.durationMs;
-        this.positionMs = Math.max(0, np.positionMs);
-        this.positionAt = Date.now();
-        this.intentPlaying = !np.paused;
-        this.loading = false;
-        this.external = false;
-        this.error = null;
-        this.errorDetail = null;
-        this.emit();
-        void this.persist();
+        await this.adoptLiveTrack(np.track, np.positionMs, !np.paused);
       }
     } catch {
       // no session info; stay empty
@@ -1557,8 +1574,13 @@ export class PlaybackEngine {
     // mirrored queue is the client's, not ours to resume locally.
     if (this.remoteActive) return;
     const t = this.current();
-    if (!t) return;
     try {
+      if (!t) {
+        // Queue cleared: drop the saved queue too, so a later adoption
+        // can't resurrect a playlist the user dismissed.
+        await getClient().store.put({ key: RESUME_KEY, value: '' });
+        return;
+      }
       const data: PersistedQueue = {
         tracks: this.queue.slice(0, 200),
         index: this.index,
