@@ -950,6 +950,12 @@ export class PlaybackEngine {
       window.clearTimeout(this.seekSendTimer);
       this.seekSendTimer = null;
     }
+    // Capture the local queue before tearing local playback down: if Finch
+    // has a song playing, the remote session should switch to it rather
+    // than keep playing whatever it had.
+    const localQueue = this.queue;
+    const localIndex = this.index;
+    const hasLocalTrack = localIndex >= 0 && localIndex < localQueue.length;
     this.intentPlaying = false;
     this.loading = true;
     this.error = null;
@@ -968,6 +974,14 @@ export class PlaybackEngine {
     this.remoteSessionId = sessionId;
     this.remoteClient = client;
     this.remoteDevice = deviceName;
+    if (hasLocalTrack) {
+      try {
+        await this.remotePlayNow(localQueue, localIndex);
+      } catch {
+        // handoff failed; fall through to mirroring the remote session
+      }
+      if (gen !== this.remoteGen) return;
+    }
     await this.pollRemote();
     if (gen !== this.remoteGen) return;
     this.loading = false;

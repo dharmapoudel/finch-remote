@@ -290,3 +290,6 @@
 
 ## 1.0.58
 - Shuffle button icon replaced with the Phosphor "shuffle-simple" design (user pick from the local icon stash).
+
+## 1.0.59
+- "Play on" handoff: choosing a remote session (e.g. Finamp) while Finch has a song playing now tells that session to play the current song and queue, instead of just mirroring whatever the remote client already had.
