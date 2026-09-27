@@ -50,6 +50,13 @@ const END_POLL_WINDOW_MS = 10_000;
 // companion sees a natural end and yields the session. Short pauses are
 // untouched; resume always works with one tap from the saved position.
 const ABANDON_AFTER_PAUSE_MS = 60_000;
+// Phone-side pause (interruption, another app took the iPhone's audio
+// session, or a pause from lock screen / BT controls): the iOS companion
+// keeps the session exclusive while its stream is paused — and re-asserts
+// it on every Bluetooth reconnect — so every second we wait is another
+// second the user's other iPhone audio stays blocked. Yield fast here;
+// resume is still one tap from the saved position.
+const ABANDON_AFTER_PHONE_PAUSE_MS = 15_000;
 // Remote mode: server session polls. Position only needs to be
 // fresh enough for the progress bar; commands are instant.
 // Remote-mode poll: a steady drip of tiny /Sessions reads keeps Finch in
@@ -383,14 +390,14 @@ export class PlaybackEngine {
   // and its remote commands, and its keepalive drops to mixed. The user
   // never sees any of this: the UI stays "paused", and resume re-plays
   // from the saved position with one tap.
-  private armAbandonTimer(): void {
+  private armAbandonTimer(delayMs = ABANDON_AFTER_PAUSE_MS): void {
     this.clearAbandonTimer();
     this.abandonIndex = this.index;
     this.abandonPositionMs = this.positionNow();
     this.abandonTimer = window.setTimeout(() => {
       this.abandonTimer = null;
       void this.abandonAfterPause();
-    }, ABANDON_AFTER_PAUSE_MS);
+    }, delayMs);
   }
 
   private clearAbandonTimer(): void {
@@ -1347,6 +1354,23 @@ export class PlaybackEngine {
         this.snapTrackId === this.current()?.id;
       this.emit();
       if (ended) void this.next(true);
+      else if (
+        !this.awaitingStart &&
+        !pauseGrace &&
+        !this.abandonedAfterPause &&
+        this.abandonTimer === null &&
+        this.current() &&
+        (this.snapTrackId === null || this.snapTrackId === this.current()?.id)
+      ) {
+        // Phone-side pause (interruption, another app took the iPhone's
+        // audio session, or a pause from lock screen / BT controls): the
+        // companion holds the session exclusive until its stream ends, so
+        // yield quickly instead of fighting the phone's audio. A user pause
+        // via toggle() already armed the longer timer; the abandonTimer check
+        // keeps this from shortening it, and the pauseGrace check covers the
+        // window before toggle() arms.
+        this.armAbandonTimer(ABANDON_AFTER_PHONE_PAUSE_MS);
+      }
     } else {
       // stopped: either we stopped it (intent already false) or the track
       // ended on its own -> advance. ignore the transient stopped right
@@ -1405,6 +1429,12 @@ export class PlaybackEngine {
       this.errorDetail = null;
       this.emit();
       void this.persist();
+      // Adopted a paused track: the companion is holding the iOS audio
+      // session exclusive with no intent from us (e.g. app restarted while
+      // paused). Yield quickly so the phone's other audio isn't blocked.
+      if (!playing && this.abandonTimer === null && !this.abandonedAfterPause) {
+        this.armAbandonTimer(ABANDON_AFTER_PHONE_PAUSE_MS);
+      }
     } catch {
       // leave the queue empty; a later snapshot or reconcile will retry
     } finally {

@@ -1,3 +1,6 @@
+## 1.0.51
+- Pause-yield abandon now also triggers on phone-side pauses: previously it only armed when you paused from Finch itself, so a pause from an interruption (phone call, another app taking the iPhone's audio, lock-screen pause) left the companion holding the iOS audio session exclusive forever — blocking all other iPhone audio on every Bluetooth connect. Phone-side pauses now yield after 15s (Finch-initiated pauses keep the 60s grace so short interruptions still auto-resume); a paused track adopted after an app restart yields the same way.
+
 ## 1.0.50
 - Playlist detail screen gains a like button: a heart next to Play/Shuffle (playlists only) that toggles the playlist's favorite state with an optimistic update and revert on failure; the favorites rails refresh on next visit. The long-press playlist menu also gains Add/Remove favorites (the "Favorite playlists" empty state already promised this).
 
