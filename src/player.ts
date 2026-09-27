@@ -185,6 +185,12 @@ export class PlaybackEngine {
   private abandonedAfterPause = false;
   private abandonIndex = -1;
   private abandonPositionMs = 0;
+  // True when the last pause came from the phone side (interruption, another
+  // app took the audio session, lock-screen/BT controls) rather than the
+  // user. A resume after a phone-side pause uses a full playAt restart
+  // instead of player.resume: the phone's audio pipeline may be in a broken
+  // state where resume "succeeds" (reports playing) but outputs silence.
+  private phoneSidePause = false;
 
   configure(jf: JellyfinClient | null): void {
     this.jf = jf;
@@ -482,6 +488,7 @@ export class PlaybackEngine {
     if (!track || !this.jf) return;
     // Any real play supersedes a pending or completed pause-yield abandon.
     this.disarmAbandon();
+    this.phoneSidePause = false;
     const gen = ++this.playGen;
     const prev = this.current();
     if (prev && prev.id !== track.id) {
@@ -559,6 +566,7 @@ export class PlaybackEngine {
     try {
       if (this.intentPlaying) {
         this.intentPlaying = false;
+        this.phoneSidePause = false;
         this.lastPauseAt = Date.now();
         void this.jf?.reportProgress(t.id, this.sessionId, this.positionNow(), true);
         this.clearProgressTimer();
@@ -576,6 +584,7 @@ export class PlaybackEngine {
           const idx = this.abandonIndex >= 0 ? this.abandonIndex : this.index;
           const pos = this.abandonPositionMs;
           this.abandonedAfterPause = false;
+          this.phoneSidePause = false;
           await this.playAt(idx, pos);
           return;
         }
@@ -583,7 +592,17 @@ export class PlaybackEngine {
         // player is dead: resume() just fails again and loops the error.
         // Restart the track instead so one tap recovers.
         if (this.error) {
+          this.phoneSidePause = false;
           await this.playAt(this.index);
+          return;
+        }
+        // After a phone-side pause (interruption, lost audio session),
+        // resume() can report "playing" while outputting silence — the
+        // audio pipeline is broken. Do a full restart from the pause
+        // position instead; one tap, same as a normal resume.
+        if (this.phoneSidePause) {
+          this.phoneSidePause = false;
+          await this.playAt(this.index, this.positionNow());
           return;
         }
         this.awaitingStart = true;
@@ -1397,7 +1416,11 @@ export class PlaybackEngine {
         // Phone-side pause (interruption, another app took the iPhone's
         // audio session, or a pause from lock screen / BT controls): do not
         // arm the abandon timer — a pause Finch didn't initiate in this
-        // session must never trigger an unsolicited play.
+        // session must never trigger an unsolicited play. Mark it so the
+        // next resume does a full restart instead of a resume (the phone's
+        // audio pipeline may be broken: resume can report "playing" while
+        // outputting silence).
+        this.phoneSidePause = true;
       }
     } else {
       // stopped: either we stopped it (intent already false) or the track

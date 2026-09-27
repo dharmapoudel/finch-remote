@@ -303,3 +303,6 @@
 
 ## 1.0.62
 - Auto-advance link stability: the end-of-track watchdog now polls every 2s (was 5s) in the last 10 seconds, so the next track starts faster — a slow end-detect left silence that let iOS suspend the backgrounded companion and drop the link. Auto-advance also skips the play attempt when the link is already down instead of flashing an error; the reconnect handler advances the queue when the link comes back.
+
+## 1.0.63
+- Silent-resume fix: after a phone-side pause (interruption, lost audio session), pressing play now does a full track restart from the pause position instead of a resume — resume could report "playing" while the phone's broken audio pipeline output silence.
