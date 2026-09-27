@@ -41,7 +41,7 @@ export function RailSkeleton() {
   return (
     <section className="mb-7" aria-hidden>
       <div className="skeleton mx-5 mb-3 h-4 w-40 rounded" />
-      <div className="flex gap-4 overflow-hidden px-5 [&>*]:min-w-0 [&>*]:flex-1">
+      <div className="flex gap-4 overflow-hidden px-5 [&>*]:min-w-0 [&>*]:grow-0 [&>*]:basis-[calc((100%-4rem)/5)]">
         {[0, 1, 2, 3, 4].map(i => (
           <SkeletonTile key={i} fluid />
         ))}

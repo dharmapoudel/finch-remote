@@ -1,3 +1,6 @@
+## 1.0.49
+- Rail tiles no longer stretch when a section holds fewer than 5 items: each tile keeps the exact 5-column width ((100% - gaps) / 5) instead of growing to fill the row, so short sections (e.g. 2-3 favorites) show normal-sized tiles left-aligned. Full 5-item sections still fill the row edge to edge with no blank space.
+
 ## 1.0.48
 - Rail rows now fill the full width: the 5 tiles in every section rail flex to equal shares of the row, so the space is evenly distributed with no blank gap on the right. (Tile artwork stays square and the layout is unchanged otherwise.)
 

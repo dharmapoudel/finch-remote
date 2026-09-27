@@ -611,7 +611,7 @@ export function Rail({
           </button>
         ) : null}
       </div>
-      <div className="flex gap-4 overflow-hidden px-5 pb-1 [&>*]:min-w-0 [&>*]:flex-1">{children}</div>
+      <div className="flex gap-4 overflow-hidden px-5 pb-1 [&>*]:min-w-0 [&>*]:grow-0 [&>*]:basis-[calc((100%-4rem)/5)]">{children}</div>
     </section>
   );
 }
