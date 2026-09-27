@@ -135,7 +135,19 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
         recordPlaylistPlay({ id: params.id, name: params.title, songCount: tracks.length, imageTag: null });
       }
       nav({ name: 'nowplaying' });
-      void player.playQueue(tracks, 0, shuffle);
+      if (shuffle) {
+        // Full Fisher-Yates shuffle: every position is random, including the
+        // first song. (player.playQueue's shuffle mode keeps the start track
+        // first, which is for tapping a specific track, not shuffle-play.)
+        const list = [...tracks];
+        for (let i = list.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [list[i], list[j]] = [list[j], list[i]];
+        }
+        void player.playQueue(list, 0, false);
+      } else {
+        void player.playQueue(tracks, 0, false);
+      }
     }
   };
 
@@ -199,7 +211,22 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
                         onClick={() => playAll(true)}
                         className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-white/10 active:bg-white/20"
                       >
-                        <Icon name="shuffle" size={28} />
+                        <svg
+                          width={28}
+                          height={28}
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2.2}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                        >
+                          <path d="M2 7h5l9 10h6" />
+                          <path d="M2 17h5l9-10h6" />
+                          <path d="M18 13.5L22 17l-4 3.5" />
+                          <path d="M18 3.5L22 7l-4 3.5" />
+                        </svg>
                       </button>
                       {params.kind === 'playlist' ? (
                         <button
@@ -250,9 +277,10 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
                       onPlay={() => {
                         nav({ name: 'nowplaying' });
                         // Tapping the already-playing song opens Now Playing
-                        // without restarting it.
+                        // without restarting it. Otherwise the full playlist
+                        // becomes the queue, positioned at the tapped song.
                         if (player.current()?.id !== t.id) {
-                          void player.playQueue(tracks, i);
+                          void player.playQueue(tracks, i, false);
                         }
                       }}
                       onToggle={() => {
@@ -260,7 +288,7 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
                           void player.toggle();
                         } else {
                           nav({ name: 'nowplaying' });
-                          void player.playQueue(tracks, i);
+                          void player.playQueue(tracks, i, false);
                         }
                       }}
                       onMenu={() => openMenu(t.name, trackActions(t, jf, nav))}

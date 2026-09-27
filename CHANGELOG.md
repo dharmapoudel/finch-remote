@@ -276,3 +276,8 @@
 ## 1.0.54
 - Tapping the already-playing song in a track list no longer restarts it — it just opens Now Playing. The play/pause button on the row now toggles pause/play for the current song instead of restarting it.
 - New cleaner, bolder shuffle icon.
+
+## 1.0.55
+- New proper shuffle icon (two crossing arrows, stroke-based) replacing the X glyph.
+- Shuffle button now does a full Fisher-Yates shuffle — every position is random including the first song (was: first song always played first, rest shuffled).
+- Tapping a track in playlist/album detail sets the full list as the queue in order, positioned at the tapped song (explicit no-shuffle; same for Favorites and Recents).

@@ -81,7 +81,7 @@ export default function RecentTracks({ jf, nav, back, openMenu }: ViewProps) {
                 onPlay={() => {
                   nav({ name: 'nowplaying' });
                   if (player.current()?.id !== t.id) {
-                    void player.playQueue(tracks, tracks.indexOf(t));
+                    void player.playQueue(tracks, tracks.indexOf(t), false);
                   }
                 }}
                 onToggle={() => {
@@ -89,7 +89,7 @@ export default function RecentTracks({ jf, nav, back, openMenu }: ViewProps) {
                     void player.toggle();
                   } else {
                     nav({ name: 'nowplaying' });
-                    void player.playQueue(tracks, tracks.indexOf(t));
+                    void player.playQueue(tracks, tracks.indexOf(t), false);
                   }
                 }}
                 onMenu={() => openMenu(t.name, menuFor(t))}
