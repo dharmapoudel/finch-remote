@@ -214,18 +214,11 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
                         <svg
                           width={28}
                           height={28}
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={2.2}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
+                          viewBox="0 0 256 256"
+                          fill="currentColor"
                           aria-hidden
                         >
-                          <path d="M2 7h5l9 10h6" />
-                          <path d="M2 17h5l9-10h6" />
-                          <path d="M18 13.5L22 17l-4 3.5" />
-                          <path d="M18 3.5L22 7l-4 3.5" />
+                          <path d="M216,48V88a8,8,0,0,1-16,0V67.31L156.28,111A8,8,0,0,1,145,99.72L188.69,56H168a8,8,0,0,1,0-16h40A8,8,0,0,1,216,48Zm-8,112a8,8,0,0,0-8,8v20.69L53.66,42.34A8,8,0,0,0,42.34,53.66L188.69,200H168a8,8,0,0,0,0,16h40a8,8,0,0,0,8-8V168A8,8,0,0,0,208,160ZM99.72,145,42.34,202.34a8,8,0,0,0,11.32,11.32L111,156.28A8,8,0,0,0,99.72,145Z" />
                         </svg>
                       </button>
                       {params.kind === 'playlist' ? (

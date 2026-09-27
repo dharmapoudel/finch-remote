@@ -287,3 +287,6 @@
 
 ## 1.0.57
 - Fixed the audio-focus theft: removed the two AUTOMATIC arming paths of the pause-yield abandon (adopting a stale paused track on launch, and the snapshot paused branch). These sent an unsolicited Player::Play 15s after app launch whenever the companion reported a paused Finch track — and every Play grabs the iOS audio session exclusive, interrupting other apps before the zero-length tail finished and released it. The abandon still fires for genuine user-initiated pauses (60s timer via toggle()).
+
+## 1.0.58
+- Shuffle button icon replaced with the Phosphor "shuffle-simple" design (user pick from the local icon stash).
