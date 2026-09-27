@@ -59,6 +59,7 @@ export interface Playlist {
   name: string;
   imageTag: string | null;
   songCount: number;
+  isFavorite?: boolean;
 }
 
 export interface Genre {
@@ -253,6 +254,7 @@ export function normalizePlaylist(raw: RawItem): Playlist {
     name: raw.Name,
     imageTag: raw.ImageTags?.Primary ?? null,
     songCount: raw.ChildCount ?? 0,
+    isFavorite: raw.UserData?.IsFavorite ?? false,
   };
 }
 
@@ -447,6 +449,11 @@ export class JellyfinClient {
       JellyfinClient.bounded({ ParentId: playlistId, IncludeItemTypes: 'Audio' }, 0, limit),
       normalizeTrack,
     );
+  }
+
+  async playlistIsFavorite(playlistId: string): Promise<boolean> {
+    const data = await this.request<RawItem>('GET', `/Users/${this.creds.userId}/Items/${playlistId}`);
+    return data.UserData?.IsFavorite ?? false;
   }
 
   async genres(): Promise<Genre[]> {

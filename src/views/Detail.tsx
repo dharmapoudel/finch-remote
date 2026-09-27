@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { trackActions } from '../actions';
-import { cached, stickyGet, stickySet } from '../cache';
+import { bust, cached, stickyBust, stickyGet, stickySet } from '../cache';
 import {
   AmbientArt,
   Artwork,
@@ -59,6 +59,7 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
   const [albums, setAlbums] = useState<Album[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [liked, setLiked] = useState<boolean | null>(null);
   const linkGen = useLinkGen();
 
   // The phone link dropping mid-load is the common failure here; when it
@@ -82,6 +83,17 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
       setAlbums(null);
     }
     setError(null);
+    setLiked(null);
+    if (params.kind === 'playlist') {
+      jf.playlistIsFavorite(params.id).then(
+        v => {
+          if (!dead) setLiked(v);
+        },
+        () => {
+          if (!dead) setLiked(false);
+        },
+      );
+    }
     const load = async (): Promise<void> => {
       try {
         let ts: Track[];
@@ -125,6 +137,20 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
       nav({ name: 'nowplaying' });
       void player.playQueue(tracks, 0, shuffle);
     }
+  };
+
+  const toggleLike = (): void => {
+    if (params.kind !== 'playlist' || liked === null) return;
+    const want = !liked;
+    setLiked(want);
+    jf.toggleFavorite(params.id, want).then(
+      () => {
+        // the favorites rails re-read on next mount; drop the stale copies
+        bust('playlists:favs');
+        stickyBust('playlists:favs');
+      },
+      () => setLiked(!want),
+    );
   };
 
   // Header art: the first track's art carries the album/playlist cover for
@@ -175,6 +201,20 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
                       >
                         <Icon name="shuffle" size={28} />
                       </button>
+                      {params.kind === 'playlist' ? (
+                        <button
+                          type="button"
+                          aria-label={liked ? 'Unlike playlist' : 'Like playlist'}
+                          onClick={toggleLike}
+                          className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-white/10 active:bg-white/20"
+                        >
+                          <Icon
+                            name={liked ? 'heartFill' : 'heart'}
+                            size={28}
+                            className={liked ? 'text-leaf' : ''}
+                          />
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </div>

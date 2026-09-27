@@ -1,3 +1,6 @@
+## 1.0.50
+- Playlist detail screen gains a like button: a heart next to Play/Shuffle (playlists only) that toggles the playlist's favorite state with an optimistic update and revert on failure; the favorites rails refresh on next visit. The long-press playlist menu also gains Add/Remove favorites (the "Favorite playlists" empty state already promised this).
+
 ## 1.0.49
 - Rail tiles no longer stretch when a section holds fewer than 5 items: each tile keeps the exact 5-column width ((100% - gaps) / 5) instead of growing to fill the row, so short sections (e.g. 2-3 favorites) show normal-sized tiles left-aligned. Full 5-item sections still fill the row edge to edge with no blank space.
 

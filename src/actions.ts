@@ -1,5 +1,6 @@
 // context-menu actions shared by the views.
 import { player } from './player';
+import { bust, stickyBust } from './cache';
 import { recordPlaylistPlay } from './recent';
 import { JellyfinClient, type Album, type Playlist, type Track } from './jellyfin';
 import type { MenuAction } from './components';
@@ -105,6 +106,23 @@ export function playlistActions(p: Playlist, jf: JellyfinClient, nav: NavFn): Me
   return [
     { label: 'Play playlist', icon: 'play', run: () => tracks(false) },
     { label: 'Shuffle playlist', icon: 'shuffle', run: () => tracks(true) },
+    {
+      label: p.isFavorite ? 'Remove from favorites' : 'Add to favorites',
+      icon: 'heart',
+      run: () => {
+        const want = !p.isFavorite;
+        p.isFavorite = want;
+        jf.toggleFavorite(p.id, want).then(
+          () => {
+            bust('playlists:favs');
+            stickyBust('playlists:favs');
+          },
+          () => {
+            p.isFavorite = !want;
+          },
+        );
+      },
+    },
     { label: 'Open playlist', icon: 'library', run: () => nav({ name: 'detail', kind: 'playlist', id: p.id, title: p.name }) },
   ];
 }
