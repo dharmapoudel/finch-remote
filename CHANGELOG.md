@@ -306,3 +306,6 @@
 
 ## 1.0.63
 - Silent-resume fix: after a phone-side pause (interruption, lost audio session), pressing play now does a full track restart from the pause position instead of a resume — resume could report "playing" while the phone's broken audio pipeline output silence.
+
+## 1.0.64
+- No more mystery blip: the pause-yield abandon no longer fires while the app is closed/backgrounded (it used to play a second of audio out of nowhere if the WebView was still alive after closing).

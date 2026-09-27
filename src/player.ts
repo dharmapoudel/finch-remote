@@ -400,6 +400,10 @@ export class PlaybackEngine {
     this.abandonPositionMs = this.positionNow();
     this.abandonTimer = window.setTimeout(() => {
       this.abandonTimer = null;
+      // The app was closed/backgrounded while paused: firing the abandon
+      // now would blip a second of audio out of nowhere. Skip it — the
+      // session just stays held until the next pause arms a fresh timer.
+      if (typeof document !== 'undefined' && document.hidden) return;
       void this.abandonAfterPause();
     }, delayMs);
   }
