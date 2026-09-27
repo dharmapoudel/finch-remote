@@ -293,3 +293,6 @@
 
 ## 1.0.59
 - "Play on" handoff: choosing a remote session (e.g. Finamp) while Finch has a song playing now tells that session to play the current song and queue, instead of just mirroring whatever the remote client already had.
+
+## 1.0.60
+- Detail screen goes compact in portrait: slimmer top bar, smaller hero art (96px), smaller title and buttons, so the track list starts near the top instead of below the fold.

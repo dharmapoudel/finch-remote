@@ -548,14 +548,21 @@ export function IconBtn({
 }
 
 export function TopBar({ title, onBack, right }: { title: string; onBack?: () => void; right?: ReactNode }) {
+  const portrait = usePortrait();
   return (
-    <div className="flex h-20 shrink-0 items-center gap-3 border-b border-white/10 px-4">
+    <div
+      className={`flex shrink-0 items-center gap-3 border-b border-white/10 px-4 ${
+        portrait ? 'h-14' : 'h-20'
+      }`}
+    >
       {onBack ? (
-        <IconBtn onClick={onBack} label="Back" size={56}>
-          <Icon name="back" size={30} />
+        <IconBtn onClick={onBack} label="Back" size={portrait ? 44 : 56}>
+          <Icon name="back" size={portrait ? 24 : 30} />
         </IconBtn>
       ) : null}
-      <h1 className="min-w-0 flex-1 truncate text-2xl font-semibold">{title}</h1>
+      <h1 className={`min-w-0 flex-1 truncate font-semibold ${portrait ? 'text-xl' : 'text-2xl'}`}>
+        {title}
+      </h1>
       {right}
     </div>
   );

@@ -15,6 +15,7 @@ import {
   useArt,
   useArtAccent,
   useLinkGen,
+  usePortrait,
 } from '../components';
 import { player } from '../player';
 import { recordPlaylistPlay } from '../recent';
@@ -169,12 +170,15 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
   // every kind. The accent color is sampled from it.
   const headerArt = tracks?.[0] ? (art?.trackArt(tracks[0], 512) ?? null) : null;
   const accent = useArtAccent(headerArt);
+  // Portrait gives the hero far less room: shrink it so the track list
+  // starts near the top instead of below the fold.
+  const portrait = usePortrait();
 
   return (
     <div className="flex h-full flex-col">
       <TopBar title={params.title} onBack={back} />
       <div className="relative min-h-0 flex-1 overflow-y-auto">
-        <AmbientArt src={headerArt} accent={accent} height={300} />
+        <AmbientArt src={headerArt} accent={accent} height={portrait ? 160 : 300} />
         <div className="relative px-5 py-5">
           {error ? (
             <Empty text={`Could not load: ${error}`} onRetry={() => setRetryKey(k => k + 1)} />
@@ -185,35 +189,48 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
           ) : (
             <>
               <Rise>
-                <div className="mb-6 flex items-end gap-5">
+                <div className={`flex gap-5 ${portrait ? 'mb-4 items-center gap-4' : 'mb-6 items-end'}`}>
                   <div className="shrink-0 shadow-2xl shadow-black/60">
-                    <Artwork src={headerArt} size={160} rounded="rounded-3xl" label={params.title} />
+                    <Artwork
+                      src={headerArt}
+                      size={portrait ? 96 : 160}
+                      rounded="rounded-3xl"
+                      label={params.title}
+                    />
                   </div>
                   <div className="min-w-0 flex-1 pb-1">
-                    <div className="text-3xl leading-tight font-bold tracking-tight">{params.title}</div>
-                    <div className="mt-1 text-xl text-white/60">
+                    <div
+                      className={`leading-tight font-bold tracking-tight ${
+                        portrait ? 'text-2xl' : 'text-3xl'
+                      }`}
+                    >
+                      {params.title}
+                    </div>
+                    <div className={`mt-1 text-white/60 ${portrait ? 'text-lg' : 'text-xl'}`}>
                       {tracks.length} track{tracks.length === 1 ? '' : 's'}
                     </div>
-                    <div className="mt-4 flex items-center gap-3">
+                    <div className={`flex items-center gap-3 ${portrait ? 'mt-3' : 'mt-4'}`}>
                       <button
                         type="button"
                         onClick={() => playAll(false)}
                         style={accent ? { backgroundColor: accent } : undefined}
-                        className={`flex h-16 shrink-0 items-center gap-2 rounded-full px-7 text-2xl font-bold text-black active:brightness-90 ${
-                          accent ? '' : 'bg-leaf'
-                        }`}
+                        className={`flex shrink-0 items-center gap-2 rounded-full font-bold text-black active:brightness-90 ${
+                          portrait ? 'h-12 px-5 text-xl' : 'h-16 px-7 text-2xl'
+                        } ${accent ? '' : 'bg-leaf'}`}
                       >
-                        <Icon name="play" size={28} /> Play
+                        <Icon name="play" size={portrait ? 22 : 28} /> Play
                       </button>
                       <button
                         type="button"
                         aria-label="Shuffle play"
                         onClick={() => playAll(true)}
-                        className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-white/10 active:bg-white/20"
+                        className={`flex shrink-0 items-center justify-center rounded-full bg-white/10 active:bg-white/20 ${
+                          portrait ? 'h-12 w-12' : 'h-16 w-16'
+                        }`}
                       >
                         <svg
-                          width={28}
-                          height={28}
+                          width={portrait ? 22 : 28}
+                          height={portrait ? 22 : 28}
                           viewBox="0 0 256 256"
                           fill="currentColor"
                           aria-hidden
@@ -226,11 +243,13 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
                           type="button"
                           aria-label={liked ? 'Unlike playlist' : 'Like playlist'}
                           onClick={toggleLike}
-                          className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-white/10 active:bg-white/20"
+                          className={`flex shrink-0 items-center justify-center rounded-full bg-white/10 active:bg-white/20 ${
+                            portrait ? 'h-12 w-12' : 'h-16 w-16'
+                          }`}
                         >
                           <Icon
                             name={liked ? 'heartFill' : 'heart'}
-                            size={28}
+                            size={portrait ? 22 : 28}
                             className={liked ? 'text-leaf' : ''}
                           />
                         </button>
