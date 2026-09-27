@@ -183,20 +183,31 @@ async function fetchArtNetwork(url: string): Promise<string | null> {
   return obj;
 }
 
-async function loadArt(url: string, priority: 'front' | 'back' = 'front'): Promise<string | null> {
+async function loadArt(
+  url: string,
+  priority: 'front' | 'back' = 'front',
+  shouldSkip?: () => boolean,
+): Promise<string | null> {
   const hit = artObjects.get(url);
   if (hit) {
     rememberArt(url, hit); // refresh LRU order
     return hit;
   }
-  const inflight = artInflight.get(url);
-  if (inflight) return inflight;
+  // Skippable loads (tile artwork) are NOT deduped via artInflight: a shared
+  // load's skip-check belongs to another tile, so one tile scrolling away
+  // could abandon art a still-visible tile needs. Completed art is still
+  // shared via artObjects; the only cost is a rare duplicate in-flight fetch
+  // (still gated to 3 slots).
+  if (!shouldSkip) {
+    const inflight = artInflight.get(url);
+    if (inflight) return inflight;
+  }
   // Demand loads jump to the FRONT of the net gate: something on screen now
   // (the Now Playing hero, a freshly mounted tile) beats background JSON.
-  const p = gatedNet(() => fetchArtNetwork(url), priority).finally(() => {
-    artInflight.delete(url);
+  const p = gatedNet(() => fetchArtNetwork(url), priority, shouldSkip).finally(() => {
+    if (artInflight.get(url) === p) artInflight.delete(url);
   });
-  artInflight.set(url, p);
+  if (!shouldSkip) artInflight.set(url, p);
   return p;
 }
 
@@ -233,7 +244,10 @@ export function cancelWarmArt(): void {
   warmGen++;
 }
 
-export function useCachedArt(src: string | null): { url: string | null; failed: boolean } {
+export function useCachedArt(
+  src: string | null,
+  aliveRef?: { current: boolean },
+): { url: string | null; failed: boolean } {
   const [obj, setObj] = useState<string | null>(() => (src ? (artObjects.get(src) ?? null) : null));
   const [failed, setFailed] = useState(false);
   // When the phone link returns after a drop, retry artwork that failed
@@ -255,7 +269,11 @@ export function useCachedArt(src: string | null): { url: string | null; failed: 
       return;
     }
     setObj(null);
-    void loadArt(src).then(o => {
+    // If the tile scrolls out of view while queued, abandon the fetch before
+    // it touches the Bluetooth link (netgate shouldSkip). The dead flag still
+    // guards the React side for loads already in flight.
+    const shouldSkip = aliveRef ? () => !aliveRef.current : undefined;
+    void loadArt(src, 'front', shouldSkip).then(o => {
       if (dead) return;
       if (o) setObj(o);
       else setFailed(true);
@@ -441,26 +459,31 @@ export function Artwork({
   // library grid mounts hundreds of tiles at once; without this every one of
   // them fires a Bluetooth-tunnelled image fetch on mount and the burst knocks
   // the phone link over. The 400px margin preloads just ahead of scroll.
+  // The observer stays connected (no disconnect after the first hit) so a
+  // tile that scrolls back out of range flips nearRef to false — its still-
+  // queued art fetch is then abandoned before touching the network (see
+  // useCachedArt's shouldSkip). Scrolling back in re-triggers the load.
+  const nearRef = useRef(false);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     if (typeof IntersectionObserver === 'undefined') {
       setNear(true);
+      nearRef.current = true;
       return;
     }
     const ob = new IntersectionObserver(
       entries => {
-        if (entries.some(e => e.isIntersecting)) {
-          setNear(true);
-          ob.disconnect();
-        }
+        const isNear = entries.some(e => e.isIntersecting);
+        nearRef.current = isNear;
+        setNear(isNear);
       },
       { rootMargin: '400px' },
     );
     ob.observe(el);
     return () => ob.disconnect();
   }, []);
-  const { url, failed } = useCachedArt(near ? src : null);
+  const { url, failed } = useCachedArt(near ? src : null, nearRef);
   return (
     <div
       ref={ref}

@@ -1,3 +1,6 @@
+## 1.0.52
+- Scrolling long lists (e.g. All Playlists) no longer floods the Bluetooth link: artwork fetches for tiles that scroll out of view are now abandoned while still queued, before they ever touch the network. Previously every tile within the preload margin enqueued an un-cancellable fetch, so a fast scroll piled hundreds of fetches into the net gate, starved the remote poll and list data, and could stall the link until the phone dropped it. The gate now takes an optional skip-check evaluated at dequeue time; tile artwork passes one tied to its viewport visibility (the tile observer stays connected instead of disconnecting after the first hit).
+
 ## 1.0.51
 - Pause-yield abandon now also triggers on phone-side pauses: previously it only armed when you paused from Finch itself, so a pause from an interruption (phone call, another app taking the iPhone's audio, lock-screen pause) left the companion holding the iOS audio session exclusive forever — blocking all other iPhone audio on every Bluetooth connect. Phone-side pauses now yield after 15s (Finch-initiated pauses keep the 60s grace so short interruptions still auto-resume); a paused track adopted after an app restart yields the same way.
 

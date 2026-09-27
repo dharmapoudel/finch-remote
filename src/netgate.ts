@@ -12,6 +12,13 @@ type Task = {
   run: () => Promise<unknown>;
   resolve: (v: unknown) => void;
   reject: (e: unknown) => void;
+  // Checked just before the task leaves the queue. If it returns true, the
+  // task is dropped without touching the network (its promise resolves
+  // null) and without consuming a slot. Used to abandon artwork for tiles
+  // that scrolled out of view while their fetch was still queued — the
+  // All Playlists grid mounts hundreds of tiles, and without this a fast
+  // scroll enqueues hundreds of un-cancellable fetches that starve the link.
+  shouldSkip?: () => boolean;
 };
 
 const queue: Task[] = [];
@@ -20,6 +27,13 @@ let active = 0;
 function pump(): void {
   while (active < MAX_CONCURRENT && queue.length) {
     const t = queue.shift()!;
+    if (t.shouldSkip?.()) {
+      // Abandoned while queued (tile scrolled away): never hit the network,
+      // don't consume a slot. Draining hundreds of these is microseconds, so
+      // 'back' traffic (JSON pages, the remote poll) can't starve behind them.
+      t.resolve(null);
+      continue;
+    }
     active++;
     t.run().then(
       v => {
@@ -38,9 +52,17 @@ function pump(): void {
 
 // priority 'front': the task jumps ahead of queued work (but never preempts
 // a running one). 'back': normal FIFO order.
-export function gatedNet<T>(task: () => Promise<T>, priority: 'front' | 'back' = 'back'): Promise<T> {
+// shouldSkip: optional abandonment check, evaluated when the task reaches the
+// front of the queue. Artwork tiles pass one tied to their viewport
+// visibility; JSON/commands never pass one (a skipped JSON reply resolves
+// null, which would corrupt the caller — so don't).
+export function gatedNet<T>(
+  task: () => Promise<T>,
+  priority: 'front' | 'back' = 'back',
+  shouldSkip?: () => boolean,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const t: Task = { run: task, resolve: resolve as (v: unknown) => void, reject };
+    const t: Task = { run: task, resolve: resolve as (v: unknown) => void, reject, shouldSkip };
     if (priority === 'front') queue.unshift(t);
     else queue.push(t);
     pump();
