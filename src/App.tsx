@@ -100,7 +100,7 @@ function TopTabs({
             onPointerUp={() => setPressedIdx(null)}
             onPointerCancel={() => setPressedIdx(null)}
             style={{ left: TAB_X[i] }}
-            className="absolute top-0 flex w-[22%] -translate-x-1/2 flex-col items-center px-2 pb-2 active:bg-white/5"
+            className="absolute top-0 flex w-[22%] -translate-x-1/2 flex-col items-center px-2 pb-2 outline-none focus:outline-none active:bg-white/5"
           >
             {/* the line, touching the very top of the screen, centered
                 directly below its hardware preset button */}
