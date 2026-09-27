@@ -371,7 +371,8 @@ const PATHS: Record<string, string> = {
   heart: 'M12 21s-7.5-4.7-10-9.3C.4 8.6 2.4 5 5.8 5c2 0 3.4 1.1 4.2 2.3h4c.8-1.2 2.2-2.3 4.2-2.3 3.4 0 5.4 3.6 3.8 6.7C19.5 16.3 12 21 12 21z',
   heartFill:
     'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z',
-  shuffle: 'M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.3 2.3-4.88 4.88 1.42 1.42L18.22 7.7 21 10.5V4h-6.5zm.5 13.5l-1.42 1.42L8.41 13.75 7 15.16l5.17 5.17 1.42-1.41L8.41 13.75l5.59-5.58 4.88 4.88 1.42-1.42-4.88-4.88z',
+  shuffle:
+    'M3 6h4v2H3zM3 16h4v2H3zM6 9l9 9 3-3-9-9zM6 15l9-9 3 3-9 9zM17 5l4 2-4 2zM17 15l4 2-4 2z',
   repeat: 'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z',
   repeatOne: 'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-6h-2v4h-2v-6h4v2z',
   search: 'M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z',
@@ -688,6 +689,7 @@ export function TrackRow({
   track,
   art,
   onPlay,
+  onToggle,
   onMenu,
   showArt = true,
   indexLabel,
@@ -695,12 +697,14 @@ export function TrackRow({
   track: Track;
   art: string | null;
   onPlay: () => void;
+  onToggle?: () => void;
   onMenu?: () => void;
   showArt?: boolean;
   indexLabel?: string;
 }) {
   usePlayer();
   const active = player.current()?.id === track.id;
+  const toggle = onToggle ?? onPlay;
   return (
     <div
       className={`flex min-h-16 items-center gap-3 rounded-2xl px-2.5 py-2 ${active ? 'bg-leaf/10' : 'active:bg-white/8'}`}
@@ -723,8 +727,8 @@ export function TrackRow({
       </button>
       <button
         type="button"
-        aria-label={`Play ${track.name}`}
-        onClick={onPlay}
+        aria-label={`${active && player.intentPlaying ? 'Pause' : 'Play'} ${track.name}`}
+        onClick={toggle}
         className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white/70 active:bg-white/15"
       >
         <Icon name={active && player.intentPlaying ? 'pause' : 'play'} size={30} />

@@ -249,7 +249,19 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
                       indexLabel={params.kind === 'album' ? String(i + 1) : undefined}
                       onPlay={() => {
                         nav({ name: 'nowplaying' });
-                        void player.playQueue(tracks, i);
+                        // Tapping the already-playing song opens Now Playing
+                        // without restarting it.
+                        if (player.current()?.id !== t.id) {
+                          void player.playQueue(tracks, i);
+                        }
+                      }}
+                      onToggle={() => {
+                        if (player.current()?.id === t.id) {
+                          void player.toggle();
+                        } else {
+                          nav({ name: 'nowplaying' });
+                          void player.playQueue(tracks, i);
+                        }
                       }}
                       onMenu={() => openMenu(t.name, trackActions(t, jf, nav))}
                     />

@@ -1,3 +1,7 @@
+## 1.0.53
+- Closing Now Playing from a playlist/album detail screen no longer strands you: minimizing now restores the full navigation stack from before Now Playing opened, so the back button pops to the parent list instead of being a dead no-op on a single-item stack.
+- Audio fight: Finch now proactively asks the companion for its player state every time the Bluetooth link (re)connects and feeds the answer through the normal snapshot path. A stuck iOS companion (holding the audio session exclusive after a pause, with its stream flag never cleared) sends no snapshot on its own, so the 15s pause-yield abandon previously never armed for it — now the proactive query triggers the yield.
+
 ## 1.0.52
 - Scrolling long lists (e.g. All Playlists) no longer floods the Bluetooth link: artwork fetches for tiles that scroll out of view are now abandoned while still queued, before they ever touch the network. Previously every tile within the preload margin enqueued an un-cancellable fetch, so a fast scroll piled hundreds of fetches into the net gate, starved the remote poll and list data, and could stall the link until the phone dropped it. The gate now takes an optional skip-check evaluated at dequeue time; tile artwork passes one tied to its viewport visibility (the tile observer stays connected instead of disconnecting after the first hit).
 
@@ -268,3 +272,7 @@
 
 ## 0.1.53
 - Playback reliability (Finamp research): (1) the stream URL now claims only codecs the iPhone can direct-play (mp3,aac,alac) — claiming opus/flac made the server direct-play them and the phone failed every such track; (2) seeks the phone rejects (transcoded streams are live pipes AVPlayer can't range-seek) now restart the track at the seek target via StartTimeTicks instead of flashing "Playback failed" and snapping the clock back, with a verify-and-native-seek correction in case the server ignored the offset; (3) playAt is now generation-guarded so rapid next/prev (or auto-advance racing a manual skip) can't have a stale play clobber the new one, and a failed track start retries once after 1.2s before surfacing an error (covers the companion fumbling a new play while tearing down the old item).
+
+## 1.0.54
+- Tapping the already-playing song in a track list no longer restarts it — it just opens Now Playing. The play/pause button on the row now toggles pause/play for the current song instead of restarting it.
+- New cleaner, bolder shuffle icon.

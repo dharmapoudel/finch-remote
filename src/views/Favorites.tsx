@@ -80,7 +80,17 @@ export default function Favorites({ jf, nav, back, openMenu }: ViewProps) {
                 art={art?.trackArt(t) ?? null}
                 onPlay={() => {
                   nav({ name: 'nowplaying' });
-                  void player.playQueue(tracks, tracks.indexOf(t));
+                  if (player.current()?.id !== t.id) {
+                    void player.playQueue(tracks, tracks.indexOf(t));
+                  }
+                }}
+                onToggle={() => {
+                  if (player.current()?.id === t.id) {
+                    void player.toggle();
+                  } else {
+                    nav({ name: 'nowplaying' });
+                    void player.playQueue(tracks, tracks.indexOf(t));
+                  }
                 }}
                 onMenu={() => openMenu(t.name, menuFor(t))}
               />
