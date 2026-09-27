@@ -197,7 +197,8 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-lg font-medium text-white">{a.name}</span>
                         <span className="block truncate text-base text-white/50">
-                          {a.songCount} Tracks | {a.artist}
+                          {a.songCount > 0 ? `${a.songCount} Tracks | ` : ''}
+                          {a.artist}
                         </span>
                       </span>
                     </button>

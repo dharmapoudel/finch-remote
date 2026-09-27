@@ -32,11 +32,11 @@ import Setup, { CREDS_KEY, type StoredCreds } from './views/Setup';
 const CACHE_CLEAR_FLAG = 'finch:cache_clear';
 const CACHE_CLEAR_HANDLED = 'finch:cache_clear_handled';
 
-const NAV_ITEMS: { view: View; icon: 'home' | 'library' | 'playlist' | 'album'; label: string }[] = [
+const NAV_ITEMS: { view: View; icon: 'home' | 'playlist' | 'album' | 'library'; label: string }[] = [
   { view: { name: 'home' }, icon: 'home', label: 'Home' },
-  { view: { name: 'library' }, icon: 'library', label: 'Library' },
   { view: { name: 'playlists' }, icon: 'playlist', label: 'Playlists' },
   { view: { name: 'albums' }, icon: 'album', label: 'Albums' },
+  { view: { name: 'library' }, icon: 'library', label: 'Library' },
 ];
 
 // o-music-style top tab strip: each tab's 2px line sits directly below its
@@ -67,21 +67,21 @@ function TopTabs({
   const activeIdx =
     view.name === 'home'
       ? 0
-      : view.name === 'library' || view.name === 'artists' || view.name === 'genres'
+      : view.name === 'playlists' || view.name === 'playlistlist'
         ? 1
-        : view.name === 'playlists' || view.name === 'playlistlist'
+        : view.name === 'albums' || view.name === 'albumlist'
           ? 2
-          : view.name === 'albums' || view.name === 'albumlist'
+          : view.name === 'library' || view.name === 'artists' || view.name === 'genres'
             ? 3
             : view.name === 'favorites' || view.name === 'recenttracks'
               ? 0
               : view.name === 'detail'
                 ? parentName === 'playlists' || parentName === 'playlistlist'
-                  ? 2
+                  ? 1
                   : parentName === 'albums' || parentName === 'albumlist'
-                    ? 3
-                    : 1
-                : 1;
+                    ? 2
+                    : 3
+                : 3;
   return (
     <div
       className={`relative z-10 h-[30px] shrink-0 transition-all duration-300 ${
@@ -328,12 +328,11 @@ export default function App() {
     // bottom-nav destinations replace the stack; drill-ins push
     const cur = viewRef.current;
     // The stack is replaced (not pushed) when opening Now Playing, so
-    // remember where it was opened from to minimize back to it.
-    if (
-      v.name === 'nowplaying' &&
-      cur.name !== 'nowplaying' &&
-      (cur.name === 'home' || cur.name === 'library' || cur.name === 'playlists' || cur.name === 'albums' || cur.name === 'artists' || cur.name === 'genres' || cur.name === 'albumlist' || cur.name === 'queue')
-    ) {
+    // remember where it was opened from to minimize back to it. Any
+    // non-Now-Playing view counts (album/playlist/artist detail, the full
+    // favorites/recent lists, …) — a whitelist here left returnView stale
+    // and M/swipe-down landed on the wrong screen.
+    if (v.name === 'nowplaying' && cur.name !== 'nowplaying' && cur.name !== 'setup') {
       returnViewRef.current = cur;
     }
     const isRoot =
@@ -374,8 +373,10 @@ export default function App() {
   );
 
   const minimizeNowPlaying = useCallback(() => {
-    nav(returnViewRef.current);
-  }, [nav]);
+    // Now Playing replaced the stack on open, so minimizing restores the
+    // single origin view — back from there won't resurrect Now Playing.
+    setStack([returnViewRef.current]);
+  }, []);
 
   const back = useCallback(() => {
     setStack(prev => (prev.length > 1 ? prev.slice(0, -1) : prev));
@@ -445,9 +446,9 @@ export default function App() {
       // press never gives the on-screen button a CSS :active.
       if (v.name === 'setup') return;
       if (e.key === '1') pressTab(0, { name: 'home' });
-      else if (e.key === '2') pressTab(1, { name: 'library' });
-      else if (e.key === '3') pressTab(2, { name: 'playlists' });
-      else if (e.key === '4') pressTab(3, { name: 'albums' });
+      else if (e.key === '2') pressTab(1, { name: 'playlists' });
+      else if (e.key === '3') pressTab(2, { name: 'albums' });
+      else if (e.key === '4') pressTab(3, { name: 'library' });
     };
     const onWheel = (e: WheelEvent): void => {
       if (Math.abs(e.deltaX) < Math.abs(e.deltaY)) return;
