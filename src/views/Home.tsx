@@ -19,6 +19,7 @@ import {
 import { player } from '../player';
 import { isAuthError, type Album, type Track } from '../jellyfin';
 import type { ViewProps } from '../nav';
+import { RAIL_N } from './listkit';
 
 function useLoad<T>(key: string | null, load: () => Promise<T>): {
   data: T | null;
@@ -92,11 +93,12 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
   const nowActive =
     nowId !== null && !player.external && !player.error && (player.intentPlaying || player.loading);
 
-  const recent = useLoad<Track[]>('home:recent', () => jf.recentlyPlayedTracks(12));
+  const recent = useLoad<Track[]>('home:recent', () => jf.recentlyPlayedTracks(RAIL_N + 1));
   const added = useLoad<Album[]>('home:added', () => jf.recentlyAddedAlbums(4));
   // Server-side limit: fetching every favorite as one giant JSON blob was
-  // knocking the Bluetooth link over; only 12 are ever shown.
-  const favs = useLoad<Track[]>('home:favs', () => jf.favorites(12));
+  // knocking the Bluetooth link over; only RAIL_N + 1 are ever fetched
+  // (5 shown, the +1 reveals whether See all is needed).
+  const favs = useLoad<Track[]>('home:favs', () => jf.favorites(RAIL_N + 1));
 
   // No artwork prefetch on Home mount: the rails' JSON is in flight at the
   // same moment, and the combined burst was dropping the Bluetooth link.
@@ -133,8 +135,15 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
 
         {recent.data ? (
           <Rise>
-            <Rail title="Recent tracks">
-              {recent.data.map((t, i) => {
+            <Rail
+              title="Recent tracks"
+              onSeeAll={
+                recent.data.length > RAIL_N
+                  ? () => nav({ name: 'recenttracks' })
+                  : undefined
+              }
+            >
+              {recent.data.slice(0, RAIL_N).map((t, i) => {
                 const isCurrent = nowActive && t.id === nowId;
                 return (
                   <Rise key={t.id} i={i}>
@@ -201,8 +210,13 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
 
         {favs.data && favs.data.length ? (
           <Rise>
-            <Rail title="Favorites" onSeeAll={() => nav({ name: 'favorites' })}>
-              {favs.data.map((t, i) => {
+            <Rail
+              title="Favorites"
+              onSeeAll={
+                favs.data.length > RAIL_N ? () => nav({ name: 'favorites' }) : undefined
+              }
+            >
+              {favs.data.slice(0, RAIL_N).map((t, i) => {
                 const isCurrent = nowActive && t.id === nowId;
                 return (
                   <Rise key={t.id} i={i}>

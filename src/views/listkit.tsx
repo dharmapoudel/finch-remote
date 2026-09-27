@@ -17,8 +17,9 @@ import type { NavFn } from '../nav';
 // link over). Pages render progressively and the rest fill in behind while
 // the user browses.
 export const LIB_PAGE = 120;
-// Rails show a few items with a See all; the full list lives one tap away.
-export const RAIL_N = 12;
+// Rails show 5 items with a See all (only when the section holds more than
+// 5); the full list lives one tap away.
+export const RAIL_N = 5;
 
 // Keep-alive across unmounts: opening a playlist/album unmounts the view,
 // and coming back shouldn't jump to the top or refetch everything.

@@ -40,7 +40,7 @@ function albumsFromTracks(tracks: Track[]): Album[] {
 // All albums rail with See all — all in the Recent-tracks rail design language.
 export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
   const art = useArt();
-  const favs = useBounded<Album>('albums:favs', () => jf.favoriteAlbums(RAIL_N));
+  const favs = useBounded<Album>('albums:favs', () => jf.favoriteAlbums(RAIL_N + 1));
   const recentTracks = useBounded<Track>('albums:recent-tracks', () => jf.recentlyPlayedTracks(60));
   const albums = usePagedList<Album>('lib:albums', (s, l) => jf.albums(s, l));
   const recentAlbums = useMemo(
@@ -78,8 +78,15 @@ export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
           <>
             {favs.data ? (
               favs.data.length > 0 ? (
-                <Rail title="Favorite albums" onSeeAll={() => nav({ name: 'albumlist', kind: 'favorites' })}>
-                  {favs.data.map(albumTile)}
+                <Rail
+                  title="Favorite albums"
+                  onSeeAll={
+                    favs.data.length > RAIL_N
+                      ? () => nav({ name: 'albumlist', kind: 'favorites' })
+                      : undefined
+                  }
+                >
+                  {favs.data.slice(0, RAIL_N).map(albumTile)}
                 </Rail>
               ) : null
             ) : (
@@ -87,7 +94,14 @@ export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
             )}
             {recentAlbums ? (
               recentAlbums.length > 0 ? (
-                <Rail title="Recently played albums" onSeeAll={() => nav({ name: 'albumlist', kind: 'recent' })}>
+                <Rail
+                  title="Recently played albums"
+                  onSeeAll={
+                    recentAlbums.length > RAIL_N
+                      ? () => nav({ name: 'albumlist', kind: 'recent' })
+                      : undefined
+                  }
+                >
                   {recentAlbums.slice(0, RAIL_N).map(albumTile)}
                 </Rail>
               ) : null
@@ -96,7 +110,14 @@ export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
             )}
             {albums.data ? (
               albums.data.length > 0 ? (
-                <Rail title="All albums" onSeeAll={() => nav({ name: 'albumlist', kind: 'all' })}>
+                <Rail
+                  title="All albums"
+                  onSeeAll={
+                    albums.data.length > RAIL_N
+                      ? () => nav({ name: 'albumlist', kind: 'all' })
+                      : undefined
+                  }
+                >
                   {albums.data.slice(0, RAIL_N).map(albumTile)}
                 </Rail>
               ) : (

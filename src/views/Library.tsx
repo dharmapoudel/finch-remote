@@ -41,7 +41,7 @@ function artistMenu(jf: JellyfinClient, nav: NavFn, openMenu: ViewProps['openMen
 
 export default function Library({ jf, nav, openMenu }: ViewProps) {
   const art = useArt();
-  const artists = useBounded<Artist>('lib:artists:rail', () => jf.artists(0, RAIL_N));
+  const artists = useBounded<Artist>('lib:artists:rail', () => jf.artists(0, RAIL_N + 1));
   const genres = useBounded<Genre>('lib:genres', () => jf.genres());
   const scroll = useScrollKeepAlive('library', !!artists.data || !!genres.data);
   const err = artists.error ?? genres.error;
@@ -64,8 +64,13 @@ export default function Library({ jf, nav, openMenu }: ViewProps) {
         ) : (
           <>
             {artists.data ? (
-              <Rail title="Artists" onSeeAll={() => nav({ name: 'artists' })}>
-                {artists.data.map(a => (
+              <Rail
+                title="Artists"
+                onSeeAll={
+                  artists.data.length > RAIL_N ? () => nav({ name: 'artists' }) : undefined
+                }
+              >
+                {artists.data.slice(0, RAIL_N).map(a => (
                   <Tile
                     key={a.id}
                     size={140}
@@ -80,8 +85,13 @@ export default function Library({ jf, nav, openMenu }: ViewProps) {
               <RailSkeleton />
             )}
             {genres.data ? (
-              <Rail title="Genres" onSeeAll={() => nav({ name: 'genres' })}>
-                {genres.data.map(g => (
+              <Rail
+                title="Genres"
+                onSeeAll={
+                  genres.data.length > RAIL_N ? () => nav({ name: 'genres' }) : undefined
+                }
+              >
+                {genres.data.slice(0, RAIL_N).map(g => (
                   <Tile
                     key={g.id}
                     size={140}

@@ -24,7 +24,7 @@ export default function PlaylistsHome({ jf, nav, openMenu }: ViewProps) {
   // Re-read on mount: returning from a playlist detail (where a play may
   // have been recorded) remounts this tab.
   const [recent] = useState<RecentPlaylist[]>(() => getRecentPlaylists());
-  const favs = useBounded<Playlist>('playlists:favs', () => jf.favoritePlaylists(RAIL_N));
+  const favs = useBounded<Playlist>('playlists:favs', () => jf.favoritePlaylists(RAIL_N + 1));
   const all = usePagedList<Playlist>('lib:playlists', (s, l) => jf.playlists(s, l));
   const scroll = useScrollKeepAlive('playlists', !!all.data || !!favs.data);
   const err = favs.error ?? all.error;
@@ -55,14 +55,28 @@ export default function PlaylistsHome({ jf, nav, openMenu }: ViewProps) {
         ) : (
           <>
             {recent.length > 0 ? (
-              <Rail title="Recently played">
-                {recent.map(tile)}
+              <Rail
+                title="Recently played"
+                onSeeAll={
+                  recent.length > RAIL_N
+                    ? () => nav({ name: 'playlistlist', kind: 'recent' })
+                    : undefined
+                }
+              >
+                {recent.slice(0, RAIL_N).map(tile)}
               </Rail>
             ) : null}
             {favs.data ? (
               favs.data.length > 0 ? (
-                <Rail title="Favorite playlists" onSeeAll={() => nav({ name: 'playlistlist', kind: 'favorites' })}>
-                  {favs.data.map(tile)}
+                <Rail
+                  title="Favorite playlists"
+                  onSeeAll={
+                    favs.data.length > RAIL_N
+                      ? () => nav({ name: 'playlistlist', kind: 'favorites' })
+                      : undefined
+                  }
+                >
+                  {favs.data.slice(0, RAIL_N).map(tile)}
                 </Rail>
               ) : null
             ) : (
@@ -70,7 +84,14 @@ export default function PlaylistsHome({ jf, nav, openMenu }: ViewProps) {
             )}
             {all.data ? (
               all.data.length > 0 ? (
-                <Rail title="All playlists" onSeeAll={() => nav({ name: 'playlistlist', kind: 'all' })}>
+                <Rail
+                  title="All playlists"
+                  onSeeAll={
+                    all.data.length > RAIL_N
+                      ? () => nav({ name: 'playlistlist', kind: 'all' })
+                      : undefined
+                  }
+                >
                   {all.data.slice(0, RAIL_N).map(tile)}
                 </Rail>
               ) : (

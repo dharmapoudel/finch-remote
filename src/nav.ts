@@ -9,6 +9,7 @@ export type View =
   | { name: 'albumlist'; kind: 'favorites' | 'recent' | 'all' }
   | { name: 'playlistlist'; kind: 'favorites' | 'recent' | 'all' }
   | { name: 'favorites' }
+  | { name: 'recenttracks' }
   | { name: 'detail'; kind: 'album' | 'artist' | 'playlist' | 'genre'; id: string; title: string }
   | { name: 'nowplaying' }
   | { name: 'queue' }

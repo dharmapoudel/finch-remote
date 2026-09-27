@@ -16,6 +16,7 @@ import { player } from './player';
 import type { View } from './nav';
 import Detail from './views/Detail';
 import Favorites from './views/Favorites';
+import RecentTracks from './views/RecentTracks';
 import Home from './views/Home';
 import AlbumsHome, { AlbumListView } from './views/Albums';
 import Library, { ArtistsAll, GenresAll } from './views/Library';
@@ -62,7 +63,7 @@ function TopTabs({
   setPressedIdx: (i: number | null) => void;
 }) {
   // Detail drill-ins keep their origin tab highlighted (Library for
-  // library-drilled details); the favorites list highlights Home.
+  // library-drilled details); the favorites and recent-tracks lists highlight Home.
   const activeIdx =
     view.name === 'home'
       ? 0
@@ -72,7 +73,7 @@ function TopTabs({
           ? 2
           : view.name === 'albums' || view.name === 'albumlist'
             ? 3
-            : view.name === 'favorites'
+            : view.name === 'favorites' || view.name === 'recenttracks'
               ? 0
               : view.name === 'detail'
                 ? parentName === 'playlists' || parentName === 'playlistlist'
@@ -515,6 +516,8 @@ export default function App() {
         return <AlbumListView {...props} kind={view.kind} />;
       case 'favorites':
         return <Favorites {...props} />;
+      case 'recenttracks':
+        return <RecentTracks {...props} />;
       case 'detail':
         return <Detail {...props} params={view} />;
       case 'queue':
