@@ -59,6 +59,7 @@ export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
 
   const albumTile = (a: Album) => (
     <Tile
+      fluid
       key={a.id}
       size={120}
       title={a.name}

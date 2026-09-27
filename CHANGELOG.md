@@ -1,3 +1,6 @@
+## 1.0.48
+- Rail rows now fill the full width: the 5 tiles in every section rail flex to equal shares of the row, so the space is evenly distributed with no blank gap on the right. (Tile artwork stays square and the layout is unchanged otherwise.)
+
 ## 1.0.47
 - Queue auto-advance made reliable: play and resume now set the playing intent optimistically instead of waiting for the phone to echo "playing" — a quiet companion (its end confirmation lost over Bluetooth) used to leave the end-of-track backstop silently disabled and strand the queue. A stale spin-up guard no longer blocks the backstop or the paused/stopped end branches, a stuck-phone backstop advances after several polls with a non-advancing position at the duration cap, and a stale "stopped" for an already-left track can't double-advance.
 

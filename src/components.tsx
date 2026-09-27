@@ -585,7 +585,9 @@ export function AuthError({ text, onReconnect }: { text: string; onReconnect: ()
 
 // ---- tiles & rows ----
 
-// Horizontal rail section: small-caps title, optional gold "See all", scroll row.
+// Horizontal rail section: small-caps title, optional gold "See all", and a
+// fixed row of tiles that evenly fills the full width (each tile flexes to an
+// equal share, so there is never blank space at the row's end).
 export function Rail({
   title,
   onSeeAll,
@@ -609,7 +611,7 @@ export function Rail({
           </button>
         ) : null}
       </div>
-      <div className="flex gap-4 overflow-x-auto px-5 pb-1">{children}</div>
+      <div className="flex gap-4 overflow-hidden px-5 pb-1 [&>*]:min-w-0 [&>*]:flex-1">{children}</div>
     </section>
   );
 }
@@ -622,6 +624,7 @@ export function Tile({
   onMenu,
   active,
   size = 160,
+  fluid = false,
 }: {
   title: string;
   subtitle?: string;
@@ -630,12 +633,13 @@ export function Tile({
   onMenu?: () => void;
   active?: boolean;
   size?: number;
+  fluid?: boolean;
 }) {
   return (
-    <div className="relative shrink-0" style={{ width: size }}>
+    <div className={fluid ? 'relative min-w-0' : 'relative shrink-0'} style={fluid ? undefined : { width: size }}>
       <button type="button" onClick={onClick} className="block w-full text-left active:opacity-80">
         <div className={active ? 'rounded-2xl ring-2 ring-inset ring-leaf' : undefined}>
-          <Artwork src={art} size={size} rounded="rounded-2xl" label={title} />
+          <Artwork src={art} size={size} rounded="rounded-2xl" label={title} fluid={fluid} />
         </div>
         <div className={`mt-2 truncate text-lg leading-tight font-medium ${active ? 'text-leaf' : ''}`}>{title}</div>
         {subtitle ? <div className="truncate text-base leading-tight text-white/50">{subtitle}</div> : null}
@@ -948,10 +952,13 @@ export function Rise({ i = 0, className = '', children }: { i?: number; classNam
   );
 }
 
-export function SkeletonTile({ size = 180 }: { size?: number }) {
+export function SkeletonTile({ size = 180, fluid = false }: { size?: number; fluid?: boolean }) {
   return (
-    <div className="shrink-0" style={{ width: size }} aria-hidden>
-      <div className="skeleton rounded-2xl" style={{ width: size, height: size }} />
+    <div className={fluid ? 'min-w-0' : 'shrink-0'} style={fluid ? undefined : { width: size }} aria-hidden>
+      <div
+        className={`skeleton rounded-2xl ${fluid ? 'aspect-square w-full' : ''}`}
+        style={fluid ? undefined : { width: size, height: size }}
+      />
       <div className="skeleton mt-2 h-6 w-4/5 rounded-md" />
       <div className="skeleton mt-1.5 h-5 w-3/5 rounded-md" />
     </div>

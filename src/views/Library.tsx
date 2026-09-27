@@ -72,6 +72,7 @@ export default function Library({ jf, nav, openMenu }: ViewProps) {
               >
                 {artists.data.slice(0, RAIL_N).map(a => (
                   <Tile
+                      fluid
                     key={a.id}
                     size={140}
                     title={a.name}
@@ -93,6 +94,7 @@ export default function Library({ jf, nav, openMenu }: ViewProps) {
               >
                 {genres.data.slice(0, RAIL_N).map(g => (
                   <Tile
+                      fluid
                     key={g.id}
                     size={140}
                     title={g.name}

@@ -148,6 +148,7 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
                 return (
                   <Rise key={t.id} i={i}>
                     <Tile
+                      fluid
                       size={140}
                       title={t.name}
                       subtitle={t.artist}
@@ -222,6 +223,7 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
                 return (
                   <Rise key={t.id} i={i}>
                     <Tile
+                      fluid
                       size={140}
                       title={t.name}
                       subtitle={t.artist}

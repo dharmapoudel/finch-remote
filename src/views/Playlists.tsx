@@ -37,6 +37,7 @@ export default function PlaylistsHome({ jf, nav, openMenu }: ViewProps) {
 
   const tile = (p: AnyPlaylist) => (
     <Tile
+      fluid
       key={p.id}
       size={120}
       title={p.name}
