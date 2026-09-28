@@ -9,7 +9,6 @@ import {
   Rise,
   SkeletonRow,
   Tile,
-  TopBar,
   TrackRow,
   friendlyError,
   useArt,
@@ -54,7 +53,7 @@ function SkeletonDetail() {
   );
 }
 
-export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & { params: DetailParams }) {
+export default function Detail({ jf, nav, openMenu, params }: ViewProps & { params: DetailParams }) {
   const art = useArt();
   const [tracks, setTracks] = useState<Track[] | null>(null);
   const [albums, setAlbums] = useState<Album[] | null>(null);
@@ -176,7 +175,6 @@ export default function Detail({ jf, nav, back, openMenu, params }: ViewProps & 
 
   return (
     <div className="flex h-full flex-col">
-      <TopBar title={params.title} onBack={back} />
       <div className="relative min-h-0 flex-1 overflow-y-auto">
         <AmbientArt src={headerArt} accent={accent} height={portrait ? 160 : 300} />
         <div className="relative px-5 py-5">
