@@ -1,3 +1,6 @@
+## 1.1.5
+- The blurred-art backdrop now truly paints behind the top tab bar on every tab. Root cause of the black band: the view-enter animation's end state kept a `translateY(0) scale(1)` transform, which (with fill-mode both) traps `position:fixed` descendants inside the view — so the backdrop started below the tabs. The end state is now `transform: none`. Playlists, Albums, and Library tabs each get their own backdrop from their content's art (first favorite playlist / album, most recent album, first artist), same as Home.
+
 ## 1.1.4
 - Restored the blurred-art backdrop behind the top tab bar: the tab strip itself stays fully transparent (no black background on it), and the blurred album art paints behind it again, fading into the page below.
 

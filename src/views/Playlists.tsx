@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { playlistActions } from '../actions';
-import { Empty, GridCard, Rail, Tile, TopBar, useArt } from '../components';
+import { AmbientArt, Empty, GridCard, Rail, Tile, TopBar, useArt, useArtAccent } from '../components';
 import { type Playlist } from '../jellyfin';
 import type { ViewProps } from '../nav';
 import { getRecentPlaylists, type RecentPlaylist } from '../recent';
@@ -30,6 +30,12 @@ export default function PlaylistsHome({ jf, nav, openMenu }: ViewProps) {
   const err = favs.error ?? all.error;
   const rawErr = favs.error ? favs.rawError : all.rawError;
 
+  // Blurred backdrop behind the transparent tab strip: first favorite
+  // playlist, else the first playlist. Fixed so it paints behind the tabs.
+  const ambientPl = favs.data?.[0] ?? all.data?.[0] ?? null;
+  const ambientSrc = ambientPl && art ? (art.playlistArt(ambientPl, 256) ?? null) : null;
+  const accent = useArtAccent(ambientSrc);
+
   const retryAll = () => {
     favs.retry();
     all.retry();
@@ -50,6 +56,7 @@ export default function PlaylistsHome({ jf, nav, openMenu }: ViewProps) {
 
   return (
     <div className="flex h-full flex-col">
+      <AmbientArt src={ambientSrc} accent={accent} height={340} fixed />
       <div ref={scroll.ref} onScroll={scroll.onScroll} className="min-h-0 flex-1 overflow-y-auto py-3">
         {err ? (
           <ListError error={err} rawError={rawErr} onRetry={retryAll} what="playlists" nav={nav} />

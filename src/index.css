@@ -194,7 +194,7 @@ button {
   --animate-bloom: fx-bloom 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-iris: fx-iris 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-view-enter: fx-view-enter 300ms cubic-bezier(0.22, 1, 0.36, 1)
-    both;
+    backwards;
 
   /* one-shot 480ms track-change bloom: settle-in overshoot + brightness lift */
   @keyframes fx-bloom {
@@ -226,9 +226,15 @@ button {
       opacity: 0;
       transform: translateY(14px) scale(0.985);
     }
+    /* Fill is backwards (not both): a retained forwards fill keeps the
+       animation applying an identity matrix as the computed transform,
+       which traps position:fixed descendants (the tab-strip ambient
+       backdrop) inside the view instead of the viewport. The to-state
+       (opacity 1, no transform) already matches the element's natural
+       style, so forwards fill is a visual no-op anyway. */
     to {
       opacity: 1;
-      transform: translateY(0) scale(1);
+      transform: none;
     }
   }
 }

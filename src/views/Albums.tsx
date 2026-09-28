@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { albumActions } from '../actions';
-import { Empty, GridCard, Rail, Tile, TopBar, useArt } from '../components';
+import { AmbientArt, Empty, GridCard, Rail, Tile, TopBar, useArt, useArtAccent } from '../components';
 import { type Album, type Track } from '../jellyfin';
 import type { ViewProps } from '../nav';
 import {
@@ -57,6 +57,13 @@ export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
     albums.retry();
   };
 
+  // Blurred backdrop behind the transparent tab strip: first favorite
+  // album, else the most recently played album, else the first album.
+  // Fixed so it paints behind the tabs.
+  const ambientAlbum = favs.data?.[0] ?? recentAlbums?.[0] ?? albums.data?.[0] ?? null;
+  const ambientSrc = ambientAlbum && art ? (art.albumArt(ambientAlbum, 256) ?? null) : null;
+  const accent = useArtAccent(ambientSrc);
+
   const albumTile = (a: Album) => (
     <Tile
       fluid
@@ -72,6 +79,7 @@ export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
 
   return (
     <div className="flex h-full flex-col">
+      <AmbientArt src={ambientSrc} accent={accent} height={340} fixed />
       <div ref={scroll.ref} onScroll={scroll.onScroll} className="min-h-0 flex-1 overflow-y-auto py-3">
         {err ? (
           <ListError error={err} rawError={rawErr} onRetry={retryAll} what="albums" nav={nav} />
