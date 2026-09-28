@@ -98,7 +98,6 @@ function TopTabs({
             key={item.label}
             type="button"
             aria-pressed={active}
-            data-focusable
             onClick={() => onNav(item.view)}
             onPointerDown={() => setPressedIdx(i)}
             onPointerUp={() => setPressedIdx(null)}
@@ -501,12 +500,18 @@ export default function App() {
   }, [nudgeVolume, pokeVolume, enterVolume, exitVolume]);
 
   // View changes reset the focus list and select the knob mode for the new
-  // view. Changing view exits volume mode (keep it simple).
+  // view. Changing view exits volume mode (keep it simple). Now Playing
+  // suspends the focus system entirely — the knob scrubs there, so there is
+  // no focus order on that screen.
   useEffect(() => {
-    focusManager.refresh();
-    focusManager.reset();
+    const np = view.name === 'nowplaying';
+    focusManager.setSuspended(np);
+    if (!np) {
+      focusManager.refresh();
+      focusManager.reset();
+    }
     if (volModeRef.current) exitVolume();
-    else knob.setMode(view.name === 'nowplaying' ? 'scrub' : 'scroll');
+    else knob.setMode(np ? 'scrub' : 'scroll');
   }, [view.name, exitVolume]);
 
   useEffect(() => {

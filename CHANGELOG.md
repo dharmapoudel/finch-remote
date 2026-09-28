@@ -1,3 +1,8 @@
+## 1.1.2
+- Focus cursor removed: the green focus ring is gone — the focused item now just carries a subtle glow, nothing on screen moves or animates when focus changes. The per-frame ring/spring animation loop is deleted entirely, which also fixes the jagged stepping seen while focus moved in the Playlists/Albums tabs; the focused item is kept visible with a native smooth scroll instead.
+- The top tab bar is no longer part of the knob focus order (tabs are tap/hardware-preset only now), so the nav bar is back to its clean pre-focus-system look.
+- Now Playing suspends the focus system entirely — the knob only scrubs there.
+
 ## 1.1.1
 - Knob 1:1 fix: one physical click now moves focus exactly one item, always. Detents are detected from wheel-event bursts (a burst after 120ms quiet = one click = one detent, regardless of the device's px-per-click), with self-calibrating px-per-click for fast spins (persisted across sessions). The focus model is now a logical integer index per detent with the spring driving only the visual glide — the old velocity integrator could land two items away or nowhere on a single click.
 - Volume mode: long-press the knob still switches the knob to volume (tap or 3s idle exits), but Finch no longer draws its own volume HUD — the OS already provides one.
