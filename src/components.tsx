@@ -1160,3 +1160,35 @@ export function AmbientArt({
     </div>
   );
 }
+
+// ---- Tab-strip ambient backdrop bus ----
+// A single fixed backdrop is rendered once at App level, OUTSIDE the
+// animated view wrapper: the view-enter animation's transform (even
+// mid-flight) traps position:fixed descendants inside the view, which
+// flashed a black band behind the tabs on every tab switch. Each tab view
+// publishes its ambient art here; App subscribes and renders it.
+type AmbientState = { src: string | null; accent: string | null };
+let ambientState: AmbientState = { src: null, accent: null };
+const ambientListeners = new Set<() => void>();
+
+export function publishAmbient(src: string | null, accent: string | null): void {
+  // Null publishes are ignored: a tab whose data hasn't loaded yet must not
+  // blank the previous tab's backdrop (that was the black flash). The last
+  // art simply lingers until the new tab has art of its own.
+  if (src === null) return;
+  if (ambientState.src === src && ambientState.accent === accent) return;
+  ambientState = { src, accent };
+  ambientListeners.forEach(l => l());
+}
+
+export function useAmbient(): AmbientState {
+  return useSyncExternalStore(
+    cb => {
+      ambientListeners.add(cb);
+      return () => {
+        ambientListeners.delete(cb);
+      };
+    },
+    () => ambientState,
+  );
+}

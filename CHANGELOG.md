@@ -1,3 +1,6 @@
+## 1.1.6
+- Fixed the black flash behind the tab bar on tab switches: the per-view backdrops are replaced by a single app-level backdrop, fed by a tiny store each tab publishes its art to. The old per-view `fixed` backdrops sat inside the animated view wrapper, whose transform (even mid-flight) trapped them below the tabs for the 300ms enter animation — a black band on every switch. The app-level backdrop never unmounts and never sits inside a transformed ancestor, so the blur stays put through the whole transition; a tab whose data hasn't loaded yet never blanks the previous tab's art.
+
 ## 1.1.5
 - The blurred-art backdrop now truly paints behind the top tab bar on every tab. Root cause of the black band: the view-enter animation's end state kept a `translateY(0) scale(1)` transform, which (with fill-mode both) traps `position:fixed` descendants inside the view — so the backdrop started below the tabs. The end state is now `transform: none`. Playlists, Albums, and Library tabs each get their own backdrop from their content's art (first favorite playlist / album, most recent album, first artist), same as Home.
 

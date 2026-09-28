@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { albumActions } from '../actions';
-import { AmbientArt, Empty, GridCard, Rail, Tile, TopBar, useArt, useArtAccent } from '../components';
+import { Empty, GridCard, publishAmbient, Rail, Tile, TopBar, useArt, useArtAccent } from '../components';
 import { type Album, type Track } from '../jellyfin';
 import type { ViewProps } from '../nav';
 import {
@@ -63,6 +63,11 @@ export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
   const ambientAlbum = favs.data?.[0] ?? recentAlbums?.[0] ?? albums.data?.[0] ?? null;
   const ambientSrc = ambientAlbum && art ? (art.albumArt(ambientAlbum, 256) ?? null) : null;
   const accent = useArtAccent(ambientSrc);
+  // Publish to the single app-level tab-strip backdrop (nulls ignored so a
+  // loading tab never blanks the previous tab's art).
+  useEffect(() => {
+    publishAmbient(ambientSrc, accent);
+  }, [ambientSrc, accent]);
 
   const albumTile = (a: Album) => (
     <Tile
@@ -79,7 +84,6 @@ export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <AmbientArt src={ambientSrc} accent={accent} height={340} fixed />
       <div ref={scroll.ref} onScroll={scroll.onScroll} className="min-h-0 flex-1 overflow-y-auto py-3">
         {err ? (
           <ListError error={err} rawError={rawErr} onRetry={retryAll} what="albums" nav={nav} />

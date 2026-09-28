@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { trackActions } from '../actions';
 import { cached, stickyGet, stickySet } from '../cache';
 import {
-  AmbientArt,
   Artwork,
   AuthError,
   Empty,
+  publishAmbient,
   Rail,
   Rise,
   SkeletonRow,
@@ -107,6 +107,12 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
     (nowActive ? recent.data?.find(t => t.id === nowId) : null) ?? recent.data?.[0] ?? null;
   const ambientSrc = ambientTrack && art ? (art.trackArt(ambientTrack, 256) ?? null) : null;
   const accent = useArtAccent(ambientSrc);
+  // The single app-level backdrop (outside the animated view wrapper, which
+  // would trap it) shows this tab's art. Nulls are ignored by the bus so a
+  // loading tab never blanks the previous tab's backdrop.
+  useEffect(() => {
+    publishAmbient(ambientSrc, accent);
+  }, [ambientSrc, accent]);
 
   // No artwork prefetch on Home mount: the rails' JSON is in flight at the
   // same moment, and the combined burst was dropping the Bluetooth link.
@@ -118,7 +124,6 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
 
   return (
     <div className="relative h-full overflow-y-auto">
-      <AmbientArt src={ambientSrc} accent={accent} height={340} fixed />
       <div className="relative pb-5 pt-3">
         {anyError ? (
           isAuthError(recent.rawError) ||

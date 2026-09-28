@@ -1,4 +1,5 @@
-import { AmbientArt, GridCard, Rail, Tile, TopBar, Spinner, useArt, useArtAccent } from '../components';
+import { useEffect } from 'react';
+import { GridCard, publishAmbient, Rail, Tile, TopBar, Spinner, useArt, useArtAccent } from '../components';
 import { player } from '../player';
 import { type Artist, type Genre } from '../jellyfin';
 import type { JellyfinClient } from '../jellyfin';
@@ -52,10 +53,14 @@ export default function Library({ jf, nav, openMenu }: ViewProps) {
   const ambientArtist = artists.data?.[0] ?? null;
   const ambientSrc = ambientArtist && art ? (art.artistArt(ambientArtist, 256) ?? null) : null;
   const accent = useArtAccent(ambientSrc);
+  // Publish to the single app-level tab-strip backdrop (nulls ignored so a
+  // loading tab never blanks the previous tab's art).
+  useEffect(() => {
+    publishAmbient(ambientSrc, accent);
+  }, [ambientSrc, accent]);
 
   return (
     <div className="flex h-full flex-col">
-      <AmbientArt src={ambientSrc} accent={accent} height={340} fixed />
       <div ref={scroll.ref} onScroll={scroll.onScroll} className="min-h-0 flex-1 overflow-y-auto py-3">
         {err ? (
           <ListError

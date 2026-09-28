@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { bustAll, stickyBustAll } from './cache';
 import { getClient } from './client';
 import {
+  AmbientArt,
   ArtCtx,
   Icon,
   bumpArtGen,
   clearArtCache,
+  useAmbient,
   useMenu,
   usePlayer,
   type ArtResolver,
@@ -143,6 +145,16 @@ function TopTabs({
       })}
     </div>
   );
+}
+
+// The single blurred-art backdrop behind the transparent top tab strip.
+// Rendered once at App level, OUTSIDE the animated view wrapper: the
+// view-enter animation's transform traps position:fixed descendants inside
+// the view mid-flight, which flashed a black band behind the tabs on every
+// tab switch. Tab views publish their art via publishAmbient().
+function TabBackdrop() {
+  const { src, accent } = useAmbient();
+  return <AmbientArt src={src} accent={accent} height={340} fixed />;
 }
 
 async function readCreds(): Promise<Creds | null> {
@@ -634,6 +646,7 @@ export default function App() {
             Lost connection to the device. Reconnect to continue.
           </div>
         ) : null}
+        {showChrome ? <TabBackdrop /> : null}
         <FocusScope className="relative flex min-h-0 flex-1 flex-col">
           {showChrome ? (
             <TopTabs
