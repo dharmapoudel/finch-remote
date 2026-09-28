@@ -200,6 +200,13 @@ export default function App() {
   const [credsState, setCredsState] = useState<'loading' | 'missing' | 'ready'>('loading');
   const [jf, setJf] = useState<JellyfinClient | null>(null);
   const [stack, setStack] = useState<View[]>([{ name: 'home' }]);
+  // Whether the last stack change was a push (drill-in/back) rather than a
+  // root replace (tab switch). The view-enter animation replays only on
+  // pushes: 1.0.70 swapped tab content instantly, and the 1.1.0 "crossfade
+  // with a spring" made every hardware-key tab switch visibly jump. A ref
+  // (not derived per render) so later re-renders can't re-arm the animation
+  // after a tab switch.
+  const lastNavWasPushRef = useRef(true);
   const [queueOpen, setQueueOpen] = useState(false);
   const [daemonUp, setDaemonUp] = useState(true);
   const menu = useMenu();
@@ -225,6 +232,7 @@ export default function App() {
     stickyBustAll();
     await clearArtCache();
     bumpArtGen();
+    lastNavWasPushRef.current = false;
     try {
       await client.store.put({ key: CACHE_CLEAR_HANDLED, value: String(ts) });
     } catch {
@@ -363,6 +371,7 @@ export default function App() {
       v.name === 'albums' ||
       v.name === 'queue' ||
       v.name === 'nowplaying';
+    lastNavWasPushRef.current = !isRoot;
     setStack(prev => (isRoot ? [v] : [...prev, v]));
   }, []);
 
@@ -399,10 +408,12 @@ export default function App() {
     // parent instead of being stuck on a single-item stack.
     const s = stackBeforeNpRef.current;
     stackBeforeNpRef.current = null;
+    lastNavWasPushRef.current = true;
     setStack(s && s.length ? s : [returnViewRef.current]);
   }, []);
 
   const back = useCallback(() => {
+    lastNavWasPushRef.current = true;
     setStack(prev => (prev.length > 1 ? prev.slice(0, -1) : prev));
   }, []);
 
@@ -638,6 +649,13 @@ export default function App() {
   const showChrome = credsState === 'ready' && view.name !== 'nowplaying';
   const current = player.current();
 
+  // The view-enter animation replays only when the last navigation was a
+  // push (drill-in/back/Now Playing), never on a root replace (switching
+  // between the four main tabs via hardware keys or the tab strip) — that
+  // path swaps content instantly, like 1.0.70 did.
+  const viewAnim =
+    view.name === 'nowplaying' ? 'animate-iris' : lastNavWasPushRef.current ? 'animate-view-enter' : '';
+
   return (
     <ArtCtx.Provider value={artResolver}>
       <div className="relative flex h-full w-full flex-col bg-zinc-950 text-white">
@@ -659,7 +677,7 @@ export default function App() {
           ) : null}
           <div
             key={view.name}
-            className={`min-h-0 w-full flex-1 ${view.name === 'nowplaying' ? 'animate-iris' : 'animate-view-enter'}`}
+            className={`min-h-0 w-full flex-1 ${viewAnim}`}
           >
             {renderView()}
           </div>
