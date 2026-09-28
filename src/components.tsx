@@ -1146,6 +1146,7 @@ export function AmbientArt({
   accent,
   height = 320,
   fixed = false,
+  vibrant = false,
 }: {
   src: string | null;
   accent?: string | null;
@@ -1154,6 +1155,9 @@ export function AmbientArt({
   // strip too (the strip is transparent); absolute stays inside the view's
   // own scroll container, e.g. the Detail header.
   fixed?: boolean;
+  // vibrant lifts the art opacity and lightens the scrim so the fixed tab
+  // backdrop reads as an extension of the view's art instead of a dark band.
+  vibrant?: boolean;
 }) {
   const { url } = useCachedArt(src);
   if (!url) return null;
@@ -1165,18 +1169,18 @@ export function AmbientArt({
     >
       <img
         src={url}
-        className="h-full w-full scale-150 object-cover opacity-40 blur-3xl"
+        className={`h-full w-full scale-150 object-cover blur-3xl ${vibrant ? 'opacity-70' : 'opacity-40'}`}
         draggable={false}
       />
       {accent && (
         <div
-          className="absolute inset-0 opacity-30"
+          className={`absolute inset-0 ${vibrant ? 'opacity-50' : 'opacity-30'}`}
           style={{
             background: `radial-gradient(120% 90% at 50% 0%, ${accent} 0%, transparent 70%)`,
           }}
         />
       )}
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-zinc-950/30 to-zinc-950" />
+      <div className={`absolute inset-0 bg-gradient-to-b from-transparent ${vibrant ? 'via-zinc-950/10 to-zinc-950/70' : 'via-zinc-950/30 to-zinc-950'}`} />
     </div>
   );
 }

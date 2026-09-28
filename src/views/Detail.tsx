@@ -171,10 +171,13 @@ export default function Detail({ jf, nav, openMenu, params }: ViewProps & { para
   const headerArt = tracks?.[0] ? (art?.trackArt(tracks[0], 512) ?? null) : null;
   const accent = useArtAccent(headerArt);
   // Publish to the single app-level tab-strip backdrop so the tab bar
-  // background extends the album/playlist art (nulls ignored so a loading
-  // detail never blanks the previous view's art).
+  // background extends the album/playlist art. Waits for the accent color
+  // so the backdrop updates atomically — publishing art without the accent
+  // first caused a visible flicker when the accent popped in separately.
+  // (publishAmbient ignores nulls, so a loading detail never blanks the
+  // previous view's art.)
   useEffect(() => {
-    publishAmbient(headerArt, accent);
+    if (headerArt && accent) publishAmbient(headerArt, accent);
   }, [headerArt, accent]);
   // Portrait gives the hero far less room: shrink it so the track list
   // starts near the top instead of below the fold.
