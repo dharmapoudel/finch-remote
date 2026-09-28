@@ -309,3 +309,6 @@
 
 ## 1.0.64
 - No more mystery blip: the pause-yield abandon no longer fires while the app is closed/backgrounded (it used to play a second of audio out of nowhere if the WebView was still alive after closing).
+
+## 1.0.65
+- New app icon: orange groove-dial mark on a square dark background (user-supplied).
