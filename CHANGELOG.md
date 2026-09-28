@@ -1,3 +1,7 @@
+## 1.1.1
+- Knob 1:1 fix: one physical click now moves focus exactly one item, always. Detents are detected from wheel-event bursts (a burst after 120ms quiet = one click = one detent, regardless of the device's px-per-click), with self-calibrating px-per-click for fast spins (persisted across sessions). The focus model is now a logical integer index per detent with the spring driving only the visual glide — the old velocity integrator could land two items away or nowhere on a single click.
+- Volume mode: long-press the knob still switches the knob to volume (tap or 3s idle exits), but Finch no longer draws its own volume HUD — the OS already provides one.
+
 ## 1.1.0
 - Knob overhaul: inertial scroll + focus system across the whole UI — the knob glides focus through items with momentum, lands with a spring snap and scale pop, and click activates the focused item. Detents tighten while music plays.
 - Now Playing: the knob scrubs time (velocity-sensitive, 5s to 30s per detent) with an on-screen time HUD; seeks commit on settle. Click toggles play/pause.

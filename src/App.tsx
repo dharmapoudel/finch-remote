@@ -15,7 +15,6 @@ import { JellyfinClient, type Creds } from './jellyfin';
 import { player } from './player';
 import { knob } from './fx/knob';
 import { focusManager, FocusScope } from './fx/focus';
-import { GlassPanel } from './fx/shaders';
 import type { View } from './nav';
 import Detail from './views/Detail';
 import Favorites from './views/Favorites';
@@ -143,28 +142,6 @@ function TopTabs({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-// Volume HUD: glass overlay while the knob is in volume mode. Subscribes via
-// usePlayer() so it re-renders on every player revision (volume nudges are
-// 90ms-throttled — React re-render is fine). player.volume is 0..1
-// (VolumeChanged.level from the daemon: 0.0 silent to 1.0 max).
-function VolumeHUD() {
-  usePlayer();
-  const pct = Math.round((player.volume ?? 0) * 100);
-  return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-6 z-40 flex justify-center">
-      <GlassPanel className="fx-hud-in flex w-72 items-center gap-3 rounded-3xl px-5 py-4">
-        <Icon name={player.muted ? 'mute' : 'volUp'} size={28} className="text-white/80" />
-        <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/15">
-          <div
-            className="h-full rounded-full bg-leaf transition-[width] duration-150"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      </GlassPanel>
     </div>
   );
 }
@@ -455,9 +432,9 @@ export default function App() {
 
   // ---- knob volume mode ----
   // The knob normally drives focus (scroll) or scrub (Now Playing). A knob
-  // hold switches it to volume mode: detents nudge the phone's volume and a
-  // HUD shows the level; a knob tap or 3s idle exits back to the view's mode.
-  const [volMode, setVolMode] = useState(false);
+  // hold switches it to volume mode: detents nudge the phone's volume (the
+  // OS shows its own volume UI, so Finch renders nothing); a knob tap or
+  // 3s idle exits back to the view's mode.
   const volModeRef = useRef(false);
   const volIdleRef = useRef<number | null>(null);
   const exitVolume = useCallback(() => {
@@ -466,7 +443,6 @@ export default function App() {
       volIdleRef.current = null;
     }
     volModeRef.current = false;
-    setVolMode(false);
     knob.setMode(viewRef.current.name === 'nowplaying' ? 'scrub' : 'scroll');
   }, []);
   const pokeVolume = useCallback(() => {
@@ -476,7 +452,6 @@ export default function App() {
   const enterVolume = useCallback(() => {
     knob.setMode('volume');
     volModeRef.current = true;
-    setVolMode(true);
     pokeVolume();
   }, [pokeVolume]);
 
@@ -669,7 +644,6 @@ export default function App() {
         </FocusScope>
         {/* Queue bar on every screen while a song is playing; the mini player is gone. */}
         {current ? <QueueHandle onOpen={() => setQueueOpen(true)} /> : null}
-        {volMode ? <VolumeHUD /> : null}
         {queueOpen ? (
           <QueueSheet
             onClose={() => setQueueOpen(false)}

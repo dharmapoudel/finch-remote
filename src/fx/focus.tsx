@@ -2,9 +2,13 @@
 // [data-focusable] elements inside the active FocusScope.
 //
 // Interaction model:
-// - Knob detents feed velocity into a free-flight integrator with
-//   exponential friction; below 0.6 items/sec a spring takes over and
-//   settles onto the nearest item with a magnetic snap.
+// - LOGICAL position is integer-exact: every knob detent moves it by exactly
+//   one item, always. The spring below only affects how the ring *looks*
+//   getting there, so one physical click can never land two items away (or
+//   nowhere) no matter the frame timing or leftover velocity.
+// - The VISUAL ring position chases the logical index with a spring; fast
+//   spins inject velocity so the ring glides with momentum, then the spring
+//   settles it exactly onto the logical item with a magnetic snap.
 // - The spring stiffens while music is playing (intentPlaying), so the
 //   focus feels tighter during playback.
 // - One fixed-position ring div lerps between the two nearest item rects.
@@ -20,25 +24,28 @@ import { knob } from './knob';
 import { player } from '../player';
 
 // ---- tuning constants ----
-const FLIGHT_FRICTION = 7; // vel *= exp(-7*dt) during free flight
-const SETTLE_VEL = 0.6; // below this (items/sec) the settle spring takes over
-const END_OVERSHOOT = 0.5; // pos may travel this far (in items) past each end
+const END_OVERSHOOT = 0.5; // ring may travel this far (in items) past each end
 const DRIVE_WINDOW_MS = 800; // scroll follow stays engaged this long after the last detent
 const SCROLL_STIFFNESS = 140; // scroll follow spring (damping ~= 2*sqrt(140): critical)
 const SCROLL_DAMPING = 23.6;
 const SCROLL_OVERSHOOT_PX = 28; // rail beyond scroll bounds; the spring pulls back
 const SPRING_PLAYING = { stiffness: 260, damping: 27 };
 const SPRING_IDLE = { stiffness: 170, damping: 21 };
+// Visual fling kick per detent (items/sec): fast spins throw the ring ahead
+// so it glides; the spring always settles back onto the logical index.
+const KICK_BASE = 2;
+const KICK_VEL = 0.35;
+const KICK_VEL_MAX = 25;
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
-type Motion = 'idle' | 'flight' | 'settle';
+type Motion = 'idle' | 'settle';
 
 export class FocusManager {
   private stack: Array<HTMLElement | null> = [];
   private items: HTMLElement[] = [];
-  private pos = 0; // float position, in items
-  private vel = 0; // float velocity, in items/sec
+  private logical = 0; // the item the user asked for: ALWAYS integer-exact
+  private pos = 0; // visual ring position (items, float), spring-chased
   private motion: Motion = 'idle';
   private settleSpring = new Spring({ stiffness: 170, damping: 21 });
   private scrollXSpring = new Spring({ stiffness: SCROLL_STIFFNESS, damping: SCROLL_DAMPING });
@@ -57,7 +64,18 @@ export class FocusManager {
   }
 
   get settledIndex(): number {
-    return this.count === 0 ? 0 : clamp(Math.round(this.pos), 0, this.count - 1);
+    return this.count === 0 ? 0 : clamp(Math.round(this.logical), 0, this.count - 1);
+  }
+
+  /** Read-only diagnostics snapshot (headless QA; no user data). */
+  debugState(): { logical: number; pos: number; settled: number; count: number; motion: Motion } {
+    return {
+      logical: Math.round(this.logical * 100) / 100,
+      pos: Math.round(this.pos * 100) / 100,
+      settled: this.settledIndex,
+      count: this.count,
+      motion: this.motion,
+    };
   }
 
   // ---- scopes ----
@@ -94,8 +112,8 @@ export class FocusManager {
     const scope = this.activeScope();
     if (scope === undefined) {
       this.items = [];
+      this.logical = 0;
       this.pos = 0;
-      this.vel = 0;
       this.motion = 'idle';
     } else {
       const root: ParentNode = scope ?? document;
@@ -106,12 +124,13 @@ export class FocusManager {
       });
       this.items = items;
       if (this.count === 0) {
+        this.logical = 0;
         this.pos = 0;
-        this.vel = 0;
         this.motion = 'idle';
       } else {
-        // Keep any in-flight motion smooth across list updates.
-        this.pos = clamp(this.pos, 0, this.count - 1);
+        // Keep the logical index valid across list updates; the spring
+        // glides the ring to wherever it lands.
+        this.logical = clamp(this.logical, 0, this.count - 1);
       }
     }
     this.updateRingVisibility();
@@ -134,8 +153,8 @@ export class FocusManager {
       const def = this.items.findIndex((el) => el.hasAttribute('data-focus-default'));
       idx = def >= 0 ? def : 0;
     }
+    this.logical = idx;
     this.pos = idx;
-    this.vel = 0;
     this.motion = 'idle';
     this.settleSpring.snap(idx);
     this.updateRingVisibility();
@@ -146,8 +165,13 @@ export class FocusManager {
 
   move(dir: 1 | -1, velocity: number): void {
     if (this.count === 0) return;
-    this.vel += dir * (4 + Math.min(Math.abs(velocity), 25) * 0.55);
-    this.motion = 'flight';
+    // Logical: exactly one item per detent, always. This is the user's
+    // intent and the ONLY thing that decides where focus settles.
+    this.logical = clamp(Math.round(this.logical) + dir, 0, this.count - 1);
+    // Visual: throw the ring ahead on fast spins so it glides with
+    // momentum. The spring always settles back onto `logical`.
+    this.settleSpring.v += dir * (KICK_BASE + Math.min(Math.abs(velocity), KICK_VEL_MAX) * KICK_VEL);
+    this.motion = 'settle';
     this.driving = true;
     if (this.driveTimer !== null) window.clearTimeout(this.driveTimer);
     this.driveTimer = window.setTimeout(() => {
@@ -211,28 +235,19 @@ export class FocusManager {
     // Adaptive magnetic detents: stiffer snap while music is playing.
     this.settleSpring.configure(player.intentPlaying ? SPRING_PLAYING : SPRING_IDLE);
     if (n > 0) {
-      if (this.motion === 'flight') {
-        this.vel *= Math.exp(-FLIGHT_FRICTION * dt);
-        this.pos += this.vel * dt;
-        this.pos = clamp(this.pos, -END_OVERSHOOT, n - 1 + END_OVERSHOOT);
-        if (Math.abs(this.vel) < SETTLE_VEL) {
-          this.motion = 'settle';
-          this.settleSpring.snap(this.pos);
-          this.settleSpring.v = this.vel;
-          this.settleSpring.target = clamp(Math.round(this.pos), 0, n - 1);
-        }
-      } else if (this.motion === 'settle') {
-        this.settleSpring.target = clamp(this.settleSpring.target, 0, n - 1);
+      this.logical = clamp(this.logical, 0, n - 1);
+      this.settleSpring.target = this.logical;
+      if (this.motion === 'settle') {
         if (this.settleSpring.step(dt)) {
+          // Settled EXACTLY on the logical index: one click in, one item moved.
           this.pos = this.settleSpring.target;
-          this.vel = 0;
           this.motion = 'idle';
           this.fireLanded(this.settledIndex);
         } else {
           this.pos = this.settleSpring.x;
-          this.vel = this.settleSpring.v;
         }
       }
+      this.pos = clamp(this.pos, -END_OVERSHOOT, n - 1 + END_OVERSHOOT);
       this.updateRing();
       this.updateScroll(dt);
     }
@@ -405,4 +420,10 @@ export function FocusScope({
       {children}
     </div>
   );
+}
+
+// Read-only diagnostics hook for headless QA (no user data exposed).
+if (typeof window !== 'undefined') {
+  (window as unknown as { __finchFocus?: () => unknown }).__finchFocus = () =>
+    focusManager.debugState();
 }
