@@ -162,6 +162,14 @@ async function fetchArtNetwork(url: string): Promise<string | null> {
   // in a previous session without touching the Bluetooth link at all.
   const saved = await persistRead(PART_PREFIX + hashUrl(url));
   if (saved) {
+    // A concurrent fetch for this URL may have populated the memory tier
+    // while we awaited the store: reuse its blob instead of minting (and
+    // revoking) a duplicate — revoking breaks <img>s still loading it.
+    const raced = artObjects.get(url);
+    if (raced) {
+      rememberArt(url, raced);
+      return raced;
+    }
     try {
       const obj = URL.createObjectURL(new Blob([b64ToBytes(saved)], { type: 'image/jpeg' }));
       rememberArt(url, obj);
@@ -179,6 +187,13 @@ async function fetchArtNetwork(url: string): Promise<string | null> {
   const srcBytes = r.body as Uint8Array<ArrayBufferLike>;
   const bytes = new Uint8Array(srcBytes.length); // copy: BlobPart needs Uint8Array<ArrayBuffer>
   bytes.set(srcBytes);
+  // Same race guard after the network round-trip: the loser's bytes are
+  // identical (same source URL), so share the winner's blob.
+  const raced = artObjects.get(url);
+  if (raced) {
+    rememberArt(url, raced);
+    return raced;
+  }
   const obj = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
   rememberArt(url, obj);
   persistWriteArt(url, bytes);
@@ -673,7 +688,7 @@ export function Tile({
   return (
     <div className={fluid ? 'relative min-w-0' : 'relative shrink-0'} style={fluid ? undefined : { width: size }}>
       <button type="button" data-focusable onClick={onClick} className="block w-full text-left active:opacity-80">
-        <div className={active ? 'rounded-2xl ring-2 ring-inset ring-leaf' : undefined}>
+        <div data-glow-target className={active ? 'rounded-2xl ring-2 ring-inset ring-leaf' : 'rounded-2xl'}>
           <Artwork src={art} size={size} rounded="rounded-2xl" label={title} fluid={fluid} />
         </div>
         <div className={`mt-2 truncate text-lg leading-tight font-medium ${active ? 'text-leaf' : ''}`}>{title}</div>
@@ -780,8 +795,7 @@ export function Ghost({
   onClick: () => void;
   disabled?: boolean;
   // opts into default knob-click focus: the focus engine lands on this
-  // button first when the view opens (used for Now Playing play/pause so a
-  // knob click toggles playback even while scrub mode is active).
+  // button first when the view opens.
   focusDefault?: boolean;
   className?: string;
   children: ReactNode;
@@ -971,7 +985,7 @@ export function GridCard({
 }) {
   return (
     <div className="relative cursor-pointer" onClick={onClick} data-focusable role="button" tabIndex={-1}>
-      <div className={active ? 'rounded-2xl ring-2 ring-inset ring-leaf' : undefined}>
+      <div data-glow-target className={active ? 'rounded-2xl ring-2 ring-inset ring-leaf' : 'rounded-2xl'}>
         <Artwork src={art} size={320} rounded="rounded-2xl" label={title} fluid />
       </div>
       <div className={`mt-2 truncate px-1 text-lg leading-tight font-semibold ${active ? 'text-leaf' : ''}`}>

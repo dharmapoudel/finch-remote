@@ -12,7 +12,7 @@
 //   (block: 'nearest'), so the browser compositor does the scrolling — no
 //   per-frame JS, no forced layouts on the hot path.
 // - The top tab bar is not part of the focus order, and the whole system
-//   suspends on the Now Playing screen (the knob scrubs there instead).
+//   suspends on the Now Playing screen (the knob drives volume there instead).
 
 import { useEffect, useRef } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
@@ -57,8 +57,8 @@ export class FocusManager {
   }
 
   /**
-   * Screens without a focus order (Now Playing: the knob scrubs there)
-   * suspend the system entirely: no items, no glow, detents ignored.
+   * Screens without a focus order (Now Playing: the knob drives volume
+   * there) suspend the system entirely: no items, no glow, detents ignored.
    */
   setSuspended(s: boolean): void {
     if (this.suspended === s) return;
@@ -171,20 +171,42 @@ export class FocusManager {
 
   // ---- glow ----
 
+  /**
+   * Where the glow lands for the focused item:
+   * - default: the box itself (.fx-focus-glow);
+   * - a [data-glow-target] descendant: the glow moves onto it (tiles and
+   *   cards: the artwork squircle, not the whole tile);
+   * - data-glow="text": the text itself glows (.fx-focus-glow-text);
+   * - data-glow="none": no visual at all (invisible backdrops).
+   */
+  private glowTarget(el: HTMLElement): HTMLElement | null {
+    if (el.getAttribute('data-glow') === 'none') return null;
+    const t = el.querySelector('[data-glow-target]');
+    return t instanceof HTMLElement ? t : el;
+  }
+
+  private glowClass(el: HTMLElement): string {
+    const t = el.querySelector('[data-glow-target]');
+    const host = t instanceof HTMLElement ? t : el;
+    const kind = host.getAttribute('data-glow') ?? el.getAttribute('data-glow');
+    return kind === 'text' ? 'fx-focus-glow-text' : 'fx-focus-glow';
+  }
+
   private applyGlow(): void {
     const el =
       this.count > 0 && !this.suspended ? (this.items[this.settledIndex] ?? null) : null;
-    if (this.glowEl === el) return;
+    const target = el !== null ? this.glowTarget(el) : null;
+    if (this.glowEl === target) return;
     this.clearGlow();
-    if (el !== null) {
-      el.classList.add('fx-focus-glow');
-      this.glowEl = el;
+    if (target !== null && el !== null) {
+      target.classList.add(this.glowClass(el));
+      this.glowEl = target;
     }
   }
 
   private clearGlow(): void {
     if (this.glowEl !== null) {
-      this.glowEl.classList.remove('fx-focus-glow');
+      this.glowEl.classList.remove('fx-focus-glow', 'fx-focus-glow-text');
       this.glowEl = null;
     }
   }

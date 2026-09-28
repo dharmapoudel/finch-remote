@@ -1,3 +1,9 @@
+## 1.1.3
+- The top tab bar is back to a clean transparent strip: the blurred-art backdrop behind it is removed (Home is plain black again, like 1.0.26).
+- Focus glow retargeting: tiles and cards now glow only around the artwork squircle instead of the whole tile; pills and circular buttons keep the box glow hugging their shape; invisible sheet backdrops show no glow at all.
+- Now Playing: the knob no longer scrubs — turning it controls the phone's volume directly (the OS shows its own volume UI). Tap still toggles play/pause; long-press is a no-op there since volume is already on the knob.
+- Fixed a tile-art race: when two tiles shared an artwork URL and fetched it concurrently, the loser's blob URL was revoked while its image was still loading, leaving the tile art broken. Concurrent fetches now share the winner's blob instead.
+
 ## 1.1.2
 - Focus cursor removed: the green focus ring is gone — the focused item now just carries a subtle glow, nothing on screen moves or animates when focus changes. The per-frame ring/spring animation loop is deleted entirely, which also fixes the jagged stepping seen while focus moved in the Playlists/Albums tabs; the focused item is kept visible with a native smooth scroll instead.
 - The top tab bar is no longer part of the knob focus order (tabs are tap/hardware-preset only now), so the nav bar is back to its clean pre-focus-system look.

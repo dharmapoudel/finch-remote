@@ -233,39 +233,16 @@ button {
   }
 }
 
-/* HUD show/hide — plain CSS (hot path, referenced directly by class). */
-@keyframes fx-hud-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@keyframes fx-hud-out {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-}
-.fx-hud-in {
-  animation: fx-hud-in 200ms ease-out both;
-}
-.fx-hud-out {
-  animation: fx-hud-out 160ms ease-in both;
-}
-
 /* Focused-item glow: the only focus indicator. Subtle by design — no ring,
    no cursor, no animation; the class simply moves between items, so nothing
-   on screen ever moves except the glow itself. */
+   on screen ever moves except the glow itself.
+   - .fx-focus-glow: box glow hugging the element (squircles, pills, circles).
+   - .fx-focus-glow-text: the text itself glows (text buttons like "See all"). */
 .fx-focus-glow {
   box-shadow: 0 0 14px 2px rgba(52, 211, 153, 0.28);
+}
+.fx-focus-glow-text {
+  text-shadow: 0 0 14px rgba(52, 211, 153, 0.85);
 }
 
 /* BloomArt CSS fallback: radial glow pulse over the plain <img>. */

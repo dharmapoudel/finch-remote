@@ -14,7 +14,7 @@
 //   contentEditable), Enter is left alone entirely.
 // Pure TypeScript: no React, no network.
 
-export type KnobMode = 'scroll' | 'scrub' | 'volume';
+export type KnobMode = 'scroll' | 'nowplaying' | 'volume';
 
 /** One detent of knob rotation. velocity = signed detents/sec over the trailing 300ms. */
 export interface Detent {

@@ -53,6 +53,7 @@ export function RemoteSheet({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           data-focusable
+          data-glow="none"
           aria-label="Close device picker"
           onClick={onClose}
           className="absolute inset-0 bg-black/50"

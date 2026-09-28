@@ -24,7 +24,7 @@ export function QueueHandle({ onOpen }: { onOpen: () => void }) {
       }}
       className="absolute bottom-1 left-1/2 z-20 -translate-x-1/2 p-3"
     >
-      <div className="h-2 w-16 rounded-full bg-white/30" />
+      <div data-glow-target className="h-2 w-16 rounded-full bg-white/30" />
     </button>
   );
 }
@@ -61,6 +61,7 @@ export function QueueSheet({ onClose, onOpenNowPlaying }: { onClose: () => void;
           ref={backdropRef}
           type="button"
           data-focusable
+          data-glow="none"
           aria-label="Close queue"
           onClick={onClose}
           className="absolute inset-0 bg-black/50"

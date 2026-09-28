@@ -430,10 +430,12 @@ export default function App() {
   }, []);
 
   // ---- knob volume mode ----
-  // The knob normally drives focus (scroll) or scrub (Now Playing). A knob
-  // hold switches it to volume mode: detents nudge the phone's volume (the
-  // OS shows its own volume UI, so Finch renders nothing); a knob tap or
-  // 3s idle exits back to the view's mode.
+  // The knob normally drives focus (scroll). A knob hold switches it to
+  // volume mode: detents nudge the phone's volume (the OS shows its own
+  // volume UI, so Finch renders nothing); a knob tap or 3s idle exits back
+  // to the view's mode. On the Now Playing screen the knob is always on
+  // volume (mode 'nowplaying'): turning it nudges volume directly, tap
+  // toggles playback, and hold is a no-op.
   const volModeRef = useRef(false);
   const volIdleRef = useRef<number | null>(null);
   const exitVolume = useCallback(() => {
@@ -442,7 +444,7 @@ export default function App() {
       volIdleRef.current = null;
     }
     volModeRef.current = false;
-    knob.setMode(viewRef.current.name === 'nowplaying' ? 'scrub' : 'scroll');
+    knob.setMode(viewRef.current.name === 'nowplaying' ? 'nowplaying' : 'scroll');
   }, []);
   const pokeVolume = useCallback(() => {
     if (volIdleRef.current !== null) window.clearTimeout(volIdleRef.current);
@@ -463,9 +465,9 @@ export default function App() {
   // - scroll: detents are consumed by focusManager's own subscription
   //   (focusManager.attach() gates on knob.mode === 'scroll'), tap
   //   activates the settled item;
-  // - scrub: detents are consumed by NowPlaying's own subscription, tap
-  //   toggles playback;
-  // - hold outside volume mode enters volume mode.
+  // - nowplaying: detents nudge volume directly (no separate volume mode
+  //   needed on that screen), tap toggles playback, hold is a no-op;
+  // - hold outside volume/nowplaying mode enters volume mode.
   useEffect(() => {
     knob.attach();
     focusManager.attach();
@@ -474,17 +476,19 @@ export default function App() {
       if (knob.mode === 'volume') {
         nudgeVolume(d.dir);
         pokeVolume();
+      } else if (knob.mode === 'nowplaying') {
+        nudgeVolume(d.dir);
       }
     });
     const offTap = knob.onTap(() => {
       if (knob.isTyping()) return;
       if (knob.mode === 'volume') exitVolume();
-      else if (knob.mode === 'scrub') void player.toggle();
+      else if (knob.mode === 'nowplaying') void player.toggle();
       else focusManager.activate();
     });
     const offHold = knob.onHold(() => {
       if (knob.isTyping()) return;
-      if (knob.mode !== 'volume') enterVolume();
+      if (knob.mode !== 'volume' && knob.mode !== 'nowplaying') enterVolume();
     });
     return () => {
       offDetent();
@@ -501,8 +505,8 @@ export default function App() {
 
   // View changes reset the focus list and select the knob mode for the new
   // view. Changing view exits volume mode (keep it simple). Now Playing
-  // suspends the focus system entirely — the knob scrubs there, so there is
-  // no focus order on that screen.
+  // suspends the focus system entirely — the knob drives volume there, so
+  // there is no focus order on that screen.
   useEffect(() => {
     const np = view.name === 'nowplaying';
     focusManager.setSuspended(np);
@@ -511,7 +515,7 @@ export default function App() {
       focusManager.reset();
     }
     if (volModeRef.current) exitVolume();
-    else knob.setMode(np ? 'scrub' : 'scroll');
+    else knob.setMode(np ? 'nowplaying' : 'scroll');
   }, [view.name, exitVolume]);
 
   useEffect(() => {
