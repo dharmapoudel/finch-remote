@@ -11,6 +11,7 @@ import {
   Tile,
   TrackRow,
   friendlyError,
+  publishAmbient,
   useArt,
   useArtAccent,
   useLinkGen,
@@ -169,6 +170,12 @@ export default function Detail({ jf, nav, openMenu, params }: ViewProps & { para
   // every kind. The accent color is sampled from it.
   const headerArt = tracks?.[0] ? (art?.trackArt(tracks[0], 512) ?? null) : null;
   const accent = useArtAccent(headerArt);
+  // Publish to the single app-level tab-strip backdrop so the tab bar
+  // background extends the album/playlist art (nulls ignored so a loading
+  // detail never blanks the previous view's art).
+  useEffect(() => {
+    publishAmbient(headerArt, accent);
+  }, [headerArt, accent]);
   // Portrait gives the hero far less room: shrink it so the track list
   // starts near the top instead of below the fold.
   const portrait = usePortrait();

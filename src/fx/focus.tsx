@@ -28,6 +28,9 @@ export class FocusManager {
   private glowEl: HTMLElement | null = null;
   private attached = false;
   private detentUnsub: (() => void) | null = null;
+  // The glow only appears after the user turns the knob: a fresh view shows
+  // no focus indicator at all until the first detent.
+  private touched = false;
 
   get count(): number {
     return this.items.length;
@@ -133,7 +136,8 @@ export class FocusManager {
     return true;
   }
 
-  /** Snap to [data-focus-default] if present, else index 0. */
+  /** Snap to [data-focus-default] if present, else index 0. The glow stays
+   * hidden until the first knob turn (touched resets on every scope change). */
   reset(): void {
     let idx = 0;
     if (this.count > 0) {
@@ -141,6 +145,7 @@ export class FocusManager {
       idx = def >= 0 ? def : 0;
     }
     this.logical = idx;
+    this.touched = false;
     this.applyGlow();
   }
 
@@ -155,6 +160,8 @@ export class FocusManager {
     // Logical: exactly one item per detent, always. This is the user's
     // intent and the ONLY thing that decides where focus lands.
     this.logical = clamp(Math.round(this.logical) + dir, 0, this.count - 1);
+    // First knob turn reveals the glow; until then the view shows none.
+    this.touched = true;
     this.applyGlow();
     // Native smooth scroll, and only when the item isn't already visible —
     // the browser moves the list, not per-frame JS.
@@ -193,8 +200,12 @@ export class FocusManager {
   }
 
   private applyGlow(): void {
+    // No glow until the user turns the knob: a fresh view shows no focus
+    // indicator at all.
     const el =
-      this.count > 0 && !this.suspended ? (this.items[this.settledIndex] ?? null) : null;
+      this.count > 0 && !this.suspended && this.touched
+        ? (this.items[this.settledIndex] ?? null)
+        : null;
     const target = el !== null ? this.glowTarget(el) : null;
     if (this.glowEl === target) return;
     this.clearGlow();
