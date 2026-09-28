@@ -16,6 +16,8 @@ import { player } from './player';
 import { getClient } from './client';
 import { gatedNet } from './netgate';
 import type { Album, Artist, Playlist, Track } from './jellyfin';
+import { FocusScope } from './fx/focus';
+import { GlassPanel } from './fx/shaders';
 
 // ---- artwork cache ----
 // Three tiers. (1) In-memory blob URLs (LRU 120): repeat renders within a
@@ -533,6 +535,7 @@ export function IconBtn({
       aria-label={label}
       title={label}
       disabled={disabled}
+      data-focusable={disabled ? undefined : true}
       onClick={e => {
         e.stopPropagation();
         onClick();
@@ -584,6 +587,7 @@ export function Empty({ text, onRetry }: { text: string; onRetry?: () => void })
       {onRetry ? (
         <button
           type="button"
+          data-focusable
           onClick={onRetry}
           className="rounded-2xl bg-white/10 px-8 py-4 text-xl font-bold text-white active:bg-white/20"
         >
@@ -603,6 +607,7 @@ export function AuthError({ text, onReconnect }: { text: string; onReconnect: ()
       <div className="text-xl leading-relaxed text-white/60">{text}</div>
       <button
         type="button"
+        data-focusable
         onClick={onReconnect}
         className="rounded-2xl bg-leaf px-8 py-4 text-xl font-bold text-black active:brightness-90"
       >
@@ -633,6 +638,7 @@ export function Rail({
         {onSeeAll ? (
           <button
             type="button"
+            data-focusable
             onClick={onSeeAll}
             className="absolute top-1/2 right-5 -translate-y-1/2 rounded-full px-4 py-2 text-lg font-medium text-goldlight active:bg-white/10"
           >
@@ -666,7 +672,7 @@ export function Tile({
 }) {
   return (
     <div className={fluid ? 'relative min-w-0' : 'relative shrink-0'} style={fluid ? undefined : { width: size }}>
-      <button type="button" onClick={onClick} className="block w-full text-left active:opacity-80">
+      <button type="button" data-focusable onClick={onClick} className="block w-full text-left active:opacity-80">
         <div className={active ? 'rounded-2xl ring-2 ring-inset ring-leaf' : undefined}>
           <Artwork src={art} size={size} rounded="rounded-2xl" label={title} fluid={fluid} />
         </div>
@@ -676,6 +682,7 @@ export function Tile({
       {onMenu ? (
         <button
           type="button"
+          data-focusable
           aria-label={`More options for ${title}`}
           onClick={e => {
             e.stopPropagation();
@@ -714,7 +721,7 @@ export function TrackRow({
     <div
       className={`flex min-h-16 items-center gap-3 rounded-2xl px-2.5 py-2 ${active ? 'bg-leaf/10' : 'active:bg-white/8'}`}
     >
-      <button type="button" onClick={onPlay} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+      <button type="button" data-focusable onClick={onPlay} className="flex min-w-0 flex-1 items-center gap-3 text-left">
         {showArt ? (
           <Artwork src={art} size={56} rounded="rounded-2xl" label={track.album} />
         ) : indexLabel ? (
@@ -732,6 +739,7 @@ export function TrackRow({
       </button>
       <button
         type="button"
+        data-focusable
         aria-label={`${active && player.intentPlaying ? 'Pause' : 'Play'} ${track.name}`}
         onClick={toggle}
         className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white/70 active:bg-white/15"
@@ -741,6 +749,7 @@ export function TrackRow({
       {onMenu ? (
         <button
           type="button"
+          data-focusable
           aria-label={`More options for ${track.name}`}
           onClick={onMenu}
           className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white/70 active:bg-white/15"
@@ -762,6 +771,7 @@ export function Ghost({
   tint,
   onClick,
   disabled,
+  focusDefault,
   className = '',
   children,
 }: {
@@ -769,6 +779,10 @@ export function Ghost({
   tint?: string;
   onClick: () => void;
   disabled?: boolean;
+  // opts into default knob-click focus: the focus engine lands on this
+  // button first when the view opens (used for Now Playing play/pause so a
+  // knob click toggles playback even while scrub mode is active).
+  focusDefault?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -778,6 +792,8 @@ export function Ghost({
       type="button"
       aria-label={label}
       disabled={disabled}
+      data-focusable={disabled ? undefined : true}
+      data-focus-default={focusDefault ? true : undefined}
       onPointerDown={() => bump(n => n + 1)}
       onClick={onClick}
       style={tint ? { color: tint } : undefined}
@@ -893,37 +909,40 @@ export interface MenuAction {
 
 export function MenuSheet({ title, actions, onClose }: { title: string; actions: MenuAction[]; onClose: () => void }) {
   return (
-    <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/70" onClick={onClose}>
-      <div
-        className="max-h-[85%] w-full overflow-y-auto rounded-t-3xl bg-zinc-900 p-4 pb-6"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="mb-3 truncate px-2 text-2xl font-semibold">{title}</div>
-        {actions.map(a => (
-          <button
-            key={a.label}
-            type="button"
-            onClick={() => {
-              onClose();
-              a.run();
-            }}
-            className={`mb-2 flex h-18 w-full items-center gap-4 rounded-2xl px-4 text-left text-2xl active:bg-white/10 ${
-              a.danger ? 'text-red-400' : ''
-            }`}
-          >
-            <Icon name={a.icon} size={30} />
-            {a.label}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-2 flex h-18 w-full items-center justify-center gap-3 rounded-2xl bg-white/10 text-2xl font-medium active:bg-white/20"
-        >
-          <Icon name="x" size={28} /> Cancel
-        </button>
+    <FocusScope>
+      <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/70" onClick={onClose}>
+        <div className="max-h-[85%] w-full overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <GlassPanel className="rounded-t-3xl p-4 pb-6">
+            <div className="mb-3 truncate px-2 text-2xl font-semibold">{title}</div>
+            {actions.map(a => (
+              <button
+                key={a.label}
+                type="button"
+                data-focusable
+                onClick={() => {
+                  onClose();
+                  a.run();
+                }}
+                className={`mb-2 flex h-18 w-full items-center gap-4 rounded-2xl px-4 text-left text-2xl active:bg-white/10 ${
+                  a.danger ? 'text-red-400' : ''
+                }`}
+              >
+                <Icon name={a.icon} size={30} />
+                {a.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              data-focusable
+              onClick={onClose}
+              className="mt-2 flex h-18 w-full items-center justify-center gap-3 rounded-2xl bg-white/10 text-2xl font-medium active:bg-white/20"
+            >
+              <Icon name="x" size={28} /> Cancel
+            </button>
+          </GlassPanel>
+        </div>
       </div>
-    </div>
+    </FocusScope>
   );
 }
 
@@ -951,7 +970,7 @@ export function GridCard({
   active?: boolean;
 }) {
   return (
-    <div className="relative cursor-pointer" onClick={onClick}>
+    <div className="relative cursor-pointer" onClick={onClick} data-focusable role="button" tabIndex={-1}>
       <div className={active ? 'rounded-2xl ring-2 ring-inset ring-leaf' : undefined}>
         <Artwork src={art} size={320} rounded="rounded-2xl" label={title} fluid />
       </div>

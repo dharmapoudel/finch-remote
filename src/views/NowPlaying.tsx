@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type TouchEvent as RTouchEvent } from 'react';
-import { Ghost, Icon, ProgressBar, TransportGlyph, useArt, useCachedArt, usePlayer, usePortrait } from '../components';
+import { useCallback, useEffect, useRef, useState, type TouchEvent as RTouchEvent } from 'react';
+import { Ghost, Icon, ProgressBar, TransportGlyph, fmtTime, useArt, useCachedArt, usePlayer, usePortrait } from '../components';
 import { useAccent, type Accent } from '../accent';
 import type { LyricLineVM } from '../jellyfin';
 import { player } from '../player';
+import { knob } from '../fx/knob';
+import { BloomArt, GlassPanel } from '../fx/shaders';
 import { RemoteSheet } from '../RemoteSheet';
 import type { ViewProps } from '../nav';
 
@@ -295,6 +297,7 @@ function InfoPanel({
                 label={player.intentPlaying ? 'Pause' : 'Play'}
                 onClick={() => void player.toggle()}
                 tint={accent?.fill}
+                focusDefault
               >
                 {player.loading ? (
                   <span className="block h-10 w-10 animate-spin rounded-full border-4 border-white/15 border-t-white/85" />
@@ -354,6 +357,81 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
   const trackId = t?.id;
   const artPanelRef = useRef<HTMLDivElement>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
+
+  // ---- knob scrub mode ----
+  // The knob rotates through scrub mode while this view is up: each detent
+  // scrubs the position locally (HUD updates via direct DOM, no React state
+  // on the hot path) and the seek only fires after 700ms of quiet, so the
+  // Bluetooth link sees one seek per scrub gesture instead of one per detent.
+  const pendingMs = useRef<number | null>(null);
+  const settleTimer = useRef<number | null>(null);
+  const hudRef = useRef<HTMLDivElement>(null);
+  const hudTimeRef = useRef<HTMLSpanElement>(null);
+  const hudBarRef = useRef<HTMLDivElement>(null);
+  // Token so a re-show during the fx-hud-out animation cancels the hide.
+  const hudToken = useRef(0);
+
+  const hideScrubHud = useCallback((): void => {
+    const hud = hudRef.current;
+    if (!hud) return;
+    const token = ++hudToken.current;
+    hud.classList.remove('fx-hud-in');
+    hud.classList.add('fx-hud-out');
+    window.setTimeout(() => {
+      if (hudToken.current !== token) return; // re-shown during the out animation
+      hud.classList.add('hidden');
+      hud.classList.remove('fx-hud-out');
+    }, 160);
+  }, []);
+
+  const showScrubHud = useCallback((ms: number, dur: number): void => {
+    hudToken.current++; // cancel any pending out-animation hide
+    const hud = hudRef.current;
+    if (!hud) return;
+    hud.classList.remove('hidden', 'fx-hud-out');
+    hud.classList.add('fx-hud-in');
+    if (hudTimeRef.current) hudTimeRef.current.textContent = fmtTime(ms);
+    if (hudBarRef.current) {
+      const pct = Math.min(100, Math.max(0, (ms / dur) * 100));
+      hudBarRef.current.style.width = `${pct}%`;
+    }
+  }, []);
+
+  const pokeSettle = useCallback((): void => {
+    if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => {
+      settleTimer.current = null;
+      const ms = pendingMs.current;
+      pendingMs.current = null;
+      if (ms != null) void player.seekTo(Math.round(ms));
+      hideScrubHud();
+    }, 700);
+  }, [hideScrubHud]);
+
+  useEffect(() => {
+    knob.setMode('scrub');
+    const off = knob.onDetent(d => {
+      if (knob.mode !== 'scrub' || knob.isTyping()) return;
+      const dur = player.trackDurationMs;
+      if (!(dur > 0)) return;
+      const v = Math.abs(d.velocity);
+      const secs = v < 6 ? 5 : v < 12 ? 10 : v < 20 ? 20 : 30; // velocity-sensitive: slow=5s/detent … fast=30s/detent
+      const base = pendingMs.current ?? player.positionNow();
+      const next = Math.min(dur, Math.max(0, base + d.dir * secs * 1000));
+      pendingMs.current = next;
+      // instant local display via direct DOM (no React state on the hot path):
+      showScrubHud(next, dur);
+      pokeSettle();
+    });
+    return () => {
+      off();
+      if (settleTimer.current !== null) {
+        window.clearTimeout(settleTimer.current);
+        settleTimer.current = null;
+      }
+      knob.setMode('scroll');
+    };
+  }, [showScrubHud, pokeSettle]);
 
   // While this view is mounted the Now Playing screen is up: hold the Glass
   // Overlay's ambient screensaver off (see setAmbientInhibit above) until we
@@ -500,25 +578,7 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
     </div>
   ) : heroArt || bgArt ? (
     <div className="relative h-full w-full overflow-hidden">
-      {/* Progressive hero: the fast 200px art shows immediately (soft),
-          the 512px hero paints over it the moment it arrives. */}
-      {bgArt && !heroArt ? (
-        <img
-          src={bgArt}
-          alt=""
-          aria-hidden="true"
-          draggable={false}
-          className="h-full w-full scale-105 object-cover blur-[3px]"
-        />
-      ) : null}
-      {heroArt ? (
-        <img
-          src={heroArt}
-          alt={t.album || t.name}
-          draggable={false}
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-      ) : null}
+      <BloomArt src={heroArt ?? bgArt} alt={t.album || t.name} />
     </div>
   ) : (
     <div className="flex h-full w-full items-center justify-center bg-zinc-900">
@@ -540,6 +600,21 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
     />
   );
 
+  // Scrub HUD: glass overlay showing the scrub position while the knob
+  // rotates. Driven by direct DOM writes (refs) — never React state on the
+  // detent path. pointer-events-none keeps the swipe-down minimize handler
+  // working underneath it.
+  const scrubHud = (
+    <div ref={hudRef} className="hidden pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center">
+      <GlassPanel className="fx-hud-in flex items-center gap-4 rounded-3xl px-6 py-3">
+        <span ref={hudTimeRef} className="font-mono text-3xl tabular-nums text-white">0:00</span>
+        <div className="h-1.5 w-40 overflow-hidden rounded-full bg-white/15">
+          <div ref={hudBarRef} className="h-full rounded-full bg-gold" style={{width:'0%'}} />
+        </div>
+      </GlassPanel>
+    </div>
+  );
+
   if (portrait) {
     return (
       <>
@@ -548,6 +623,7 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
             {artPanel}
           </div>
           <div className="min-h-0 flex-1">{infoPanel}</div>
+          {scrubHud}
         </div>
         {remoteOpen ? <RemoteSheet onClose={() => setRemoteOpen(false)} /> : null}
       </>
@@ -561,6 +637,7 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
           {artPanel}
         </div>
         <div className="h-full min-w-0 flex-1">{infoPanel}</div>
+        {scrubHud}
       </div>
       {remoteOpen ? <RemoteSheet onClose={() => setRemoteOpen(false)} /> : null}
     </>

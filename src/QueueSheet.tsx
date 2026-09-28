@@ -1,6 +1,8 @@
 import { useRef } from 'react';
 import { Artwork, Icon, IconBtn, useArt, useArtAccent, usePlayer } from './components';
 import { player } from './player';
+import { FocusScope } from './fx/focus';
+import { GlassPanel } from './fx/shaders';
 
 // The small, almost-transparent bar at the bottom center of every screen
 // while a song is playing. Swipe up (or tap) opens the queue sheet.
@@ -9,6 +11,7 @@ export function QueueHandle({ onOpen }: { onOpen: () => void }) {
   return (
     <button
       type="button"
+      data-focusable
       aria-label="Open queue"
       onClick={onOpen}
       onTouchStart={e => {
@@ -52,18 +55,20 @@ export function QueueSheet({ onClose, onOpenNowPlaying }: { onClose: () => void;
   };
 
   return (
-    <div className="absolute inset-0 z-30">
-      <button
-        ref={backdropRef}
-        type="button"
-        aria-label="Close queue"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/50"
-      />
-      <div
-        ref={sheetRef}
-        className="absolute inset-x-0 bottom-0 top-[10%] flex flex-col overflow-hidden rounded-t-3xl bg-[#171a21]/95 shadow-2xl backdrop-blur-xl"
-        onTouchStart={e => {
+    <FocusScope>
+      <div className="absolute inset-0 z-30">
+        <button
+          ref={backdropRef}
+          type="button"
+          data-focusable
+          aria-label="Close queue"
+          onClick={onClose}
+          className="absolute inset-0 bg-black/50"
+        />
+        <div
+          ref={sheetRef}
+          className="absolute inset-x-0 bottom-0 top-[10%] overflow-hidden rounded-t-3xl"
+          onTouchStart={e => {
           // A drag that starts in the track list only becomes a sheet drag
           // when the list is already scrolled to the top; otherwise the list
           // keeps scrolling normally.
@@ -97,6 +102,7 @@ export function QueueSheet({ onClose, onOpenNowPlaying }: { onClose: () => void;
           setDragOffset(0, true);
         }}
       >
+        <GlassPanel className="flex h-full flex-col">
         <div className="shrink-0 px-6 pt-3 pb-1">
           <div className="mx-auto h-1.5 w-16 rounded-full bg-white/30" />
         </div>
@@ -105,6 +111,7 @@ export function QueueSheet({ onClose, onOpenNowPlaying }: { onClose: () => void;
           {upcoming.length ? (
             <button
               type="button"
+              data-focusable
               onClick={() => player.clearQueue()}
               className="h-12 rounded-full bg-white/10 px-5 text-lg text-red-300 active:bg-white/20"
             >
@@ -120,6 +127,7 @@ export function QueueSheet({ onClose, onOpenNowPlaying }: { onClose: () => void;
             >
               <button
                 type="button"
+                data-focusable
                 onClick={onOpenNowPlaying}
                 aria-label={`Open Now Playing for ${current.name}`}
                 className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left active:bg-white/8"
@@ -156,6 +164,7 @@ export function QueueSheet({ onClose, onOpenNowPlaying }: { onClose: () => void;
                 >
                   <button
                     type="button"
+                    data-focusable
                     onClick={() => void player.jumpTo(qi)}
                     className="flex min-w-0 flex-1 items-center gap-3 text-left"
                   >
@@ -167,6 +176,7 @@ export function QueueSheet({ onClose, onOpenNowPlaying }: { onClose: () => void;
                   </button>
                   <button
                     type="button"
+                    data-focusable
                     aria-label={`Remove ${t.name} from queue`}
                     onClick={() => player.removeAt(qi)}
                     className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white/50 active:bg-white/15"
@@ -177,8 +187,10 @@ export function QueueSheet({ onClose, onOpenNowPlaying }: { onClose: () => void;
               );
             })
           )}
+          </div>
+        </GlassPanel>
         </div>
       </div>
-    </div>
+    </FocusScope>
   );
 }

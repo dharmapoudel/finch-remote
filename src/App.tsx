@@ -13,6 +13,9 @@ import {
 } from './components';
 import { JellyfinClient, type Creds } from './jellyfin';
 import { player } from './player';
+import { knob } from './fx/knob';
+import { focusManager, FocusScope } from './fx/focus';
+import { GlassPanel } from './fx/shaders';
 import type { View } from './nav';
 import Detail from './views/Detail';
 import Favorites from './views/Favorites';
@@ -96,6 +99,7 @@ function TopTabs({
             key={item.label}
             type="button"
             aria-pressed={active}
+            data-focusable
             onClick={() => onNav(item.view)}
             onPointerDown={() => setPressedIdx(i)}
             onPointerUp={() => setPressedIdx(null)}
@@ -139,6 +143,28 @@ function TopTabs({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// Volume HUD: glass overlay while the knob is in volume mode. Subscribes via
+// usePlayer() so it re-renders on every player revision (volume nudges are
+// 90ms-throttled — React re-render is fine). player.volume is 0..1
+// (VolumeChanged.level from the daemon: 0.0 silent to 1.0 max).
+function VolumeHUD() {
+  usePlayer();
+  const pct = Math.round((player.volume ?? 0) * 100);
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-6 z-40 flex justify-center">
+      <GlassPanel className="fx-hud-in flex w-72 items-center gap-3 rounded-3xl px-5 py-4">
+        <Icon name={player.muted ? 'mute' : 'volUp'} size={28} className="text-white/80" />
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/15">
+          <div
+            className="h-full rounded-full bg-leaf transition-[width] duration-150"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </GlassPanel>
     </div>
   );
 }
@@ -427,6 +453,87 @@ export default function App() {
     }
   }, []);
 
+  // ---- knob volume mode ----
+  // The knob normally drives focus (scroll) or scrub (Now Playing). A knob
+  // hold switches it to volume mode: detents nudge the phone's volume and a
+  // HUD shows the level; a knob tap or 3s idle exits back to the view's mode.
+  const [volMode, setVolMode] = useState(false);
+  const volModeRef = useRef(false);
+  const volIdleRef = useRef<number | null>(null);
+  const exitVolume = useCallback(() => {
+    if (volIdleRef.current !== null) {
+      window.clearTimeout(volIdleRef.current);
+      volIdleRef.current = null;
+    }
+    volModeRef.current = false;
+    setVolMode(false);
+    knob.setMode(viewRef.current.name === 'nowplaying' ? 'scrub' : 'scroll');
+  }, []);
+  const pokeVolume = useCallback(() => {
+    if (volIdleRef.current !== null) window.clearTimeout(volIdleRef.current);
+    volIdleRef.current = window.setTimeout(exitVolume, 3000);
+  }, [exitVolume]);
+  const enterVolume = useCallback(() => {
+    knob.setMode('volume');
+    volModeRef.current = true;
+    setVolMode(true);
+    pokeVolume();
+  }, [pokeVolume]);
+
+  // ---- knob/focus engine, mount once ----
+  // The knob engine owns ALL wheel events (capture, passive:false,
+  // preventDefault) and Enter keydown/keyup. App routes detents/taps/holds
+  // by knob mode:
+  // - volume: detents nudge volume (nudgeVolume is kept from before),
+  //   tap exits, hold is a no-op while already in volume mode;
+  // - scroll: detents are consumed by focusManager's own subscription
+  //   (focusManager.attach() gates on knob.mode === 'scroll'), tap
+  //   activates the settled item;
+  // - scrub: detents are consumed by NowPlaying's own subscription, tap
+  //   toggles playback;
+  // - hold outside volume mode enters volume mode.
+  useEffect(() => {
+    knob.attach();
+    focusManager.attach();
+    const offDetent = knob.onDetent(d => {
+      if (knob.isTyping()) return;
+      if (knob.mode === 'volume') {
+        nudgeVolume(d.dir);
+        pokeVolume();
+      }
+    });
+    const offTap = knob.onTap(() => {
+      if (knob.isTyping()) return;
+      if (knob.mode === 'volume') exitVolume();
+      else if (knob.mode === 'scrub') void player.toggle();
+      else focusManager.activate();
+    });
+    const offHold = knob.onHold(() => {
+      if (knob.isTyping()) return;
+      if (knob.mode !== 'volume') enterVolume();
+    });
+    return () => {
+      offDetent();
+      offTap();
+      offHold();
+      focusManager.detach();
+      knob.detach();
+      if (volIdleRef.current !== null) {
+        window.clearTimeout(volIdleRef.current);
+        volIdleRef.current = null;
+      }
+    };
+  }, [nudgeVolume, pokeVolume, enterVolume, exitVolume]);
+
+  // View changes reset the focus list and select the knob mode for the new
+  // view. Changing view exits volume mode (keep it simple).
+  useEffect(() => {
+    focusManager.refresh();
+    focusManager.reset();
+    if (volModeRef.current) exitVolume();
+    else knob.setMode(view.name === 'nowplaying' ? 'scrub' : 'scroll');
+  }, [view.name, exitVolume]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const v = viewRef.current;
@@ -460,14 +567,7 @@ export default function App() {
       else if (e.key === '3') pressTab(2, { name: 'albums' });
       else if (e.key === '4') pressTab(3, { name: 'library' });
     };
-    const onWheel = (e: WheelEvent): void => {
-      if (Math.abs(e.deltaX) < Math.abs(e.deltaY)) return;
-      if (e.deltaX === 0) return;
-      e.preventDefault();
-      nudgeVolume(e.deltaX > 0 ? 1 : -1);
-    };
     window.addEventListener('keydown', onKey);
-    window.addEventListener('wheel', onWheel, { passive: false });
     // lifting a hardware preset button ends the tab press reveal; the
     // timeout in pressTab covers devices that never send keyup
     const onKeyUp = (e: KeyboardEvent): void => {
@@ -476,10 +576,9 @@ export default function App() {
     window.addEventListener('keyup', onKeyUp);
     return () => {
       window.removeEventListener('keydown', onKey);
-      window.removeEventListener('wheel', onWheel);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [back, minimizeNowPlaying, nav, nudgeVolume, pressTab, clearPressed]);
+  }, [back, minimizeNowPlaying, nav, pressTab, clearPressed]);
 
   const artResolver: ArtResolver | null = useMemo(
     () =>
@@ -551,18 +650,26 @@ export default function App() {
             Lost connection to the device. Reconnect to continue.
           </div>
         ) : null}
-        {showChrome ? (
-          <TopTabs
-            view={view}
-            parentName={stack[stack.length - 2]?.name}
-            onNav={nav}
-            pressedIdx={pressedIdx}
-            setPressedIdx={setPressedIdx}
-          />
-        ) : null}
-        <div className="relative min-h-0 flex-1">{renderView()}</div>
+        <FocusScope className="relative flex min-h-0 flex-1 flex-col">
+          {showChrome ? (
+            <TopTabs
+              view={view}
+              parentName={stack[stack.length - 2]?.name}
+              onNav={nav}
+              pressedIdx={pressedIdx}
+              setPressedIdx={setPressedIdx}
+            />
+          ) : null}
+          <div
+            key={view.name}
+            className={`min-h-0 w-full flex-1 ${view.name === 'nowplaying' ? 'animate-iris' : 'animate-view-enter'}`}
+          >
+            {renderView()}
+          </div>
+        </FocusScope>
         {/* Queue bar on every screen while a song is playing; the mini player is gone. */}
         {current ? <QueueHandle onOpen={() => setQueueOpen(true)} /> : null}
+        {volMode ? <VolumeHUD /> : null}
         {queueOpen ? (
           <QueueSheet
             onClose={() => setQueueOpen(false)}

@@ -183,3 +183,151 @@ button {
     transform: translateX(100%);
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* FX tokens (shaders.tsx / focus.tsx contract). Tailwind v4 merges    */
+/* multiple @theme blocks, so these ride the same pattern as above:    */
+/* --animate-* utilities backed by @keyframes inside @theme.           */
+/* ------------------------------------------------------------------ */
+
+@theme {
+  --animate-bloom: fx-bloom 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-iris: fx-iris 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-view-enter: fx-view-enter 300ms cubic-bezier(0.22, 1, 0.36, 1)
+    both;
+
+  /* one-shot 480ms track-change bloom: settle-in overshoot + brightness lift */
+  @keyframes fx-bloom {
+    0% {
+      transform: scale(0.92);
+      filter: brightness(1.25);
+    }
+    60% {
+      transform: scale(1.04);
+      filter: brightness(1.08);
+    }
+    100% {
+      transform: scale(1);
+      filter: brightness(1);
+    }
+  }
+
+  @keyframes fx-iris {
+    from {
+      clip-path: circle(0% at 50% 50%);
+    }
+    to {
+      clip-path: circle(75% at 50% 50%);
+    }
+  }
+
+  @keyframes fx-view-enter {
+    from {
+      opacity: 0;
+      transform: translateY(14px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+}
+
+/* HUD show/hide — plain CSS (hot path, referenced directly by class). */
+@keyframes fx-hud-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes fx-hud-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+.fx-hud-in {
+  animation: fx-hud-in 200ms ease-out both;
+}
+.fx-hud-out {
+  animation: fx-hud-out 160ms ease-in both;
+}
+
+/* Focus ring: box-shadow pulse only — focus.tsx positions the ring via
+   inline transform, so no transform animation here. */
+.fx-focus-ring {
+  border: 2px solid rgba(52, 211, 153, 0.9);
+  border-radius: 18px;
+  box-shadow:
+    0 0 18px rgba(52, 211, 153, 0.35),
+    inset 0 0 12px rgba(52, 211, 153, 0.12);
+  pointer-events: none;
+}
+@keyframes fx-ring-pop {
+  0% {
+    box-shadow:
+      0 0 18px rgba(52, 211, 153, 0.35),
+      inset 0 0 12px rgba(52, 211, 153, 0.12);
+  }
+  40% {
+    box-shadow:
+      0 0 34px rgba(52, 211, 153, 0.65),
+      inset 0 0 20px rgba(52, 211, 153, 0.25);
+  }
+  100% {
+    box-shadow:
+      0 0 18px rgba(52, 211, 153, 0.35),
+      inset 0 0 12px rgba(52, 211, 153, 0.12);
+  }
+}
+.fx-ring-pop {
+  animation: fx-ring-pop 260ms ease-out;
+}
+
+/* BloomArt CSS fallback: radial glow pulse over the plain <img>. */
+@keyframes fx-glow-pulse {
+  0% {
+    opacity: 0;
+  }
+  45% {
+    opacity: 0.75;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.fx-bloom-fallback {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 255, 255, 0.22) 0%,
+    transparent 65%
+  );
+  animation: fx-glow-pulse 480ms ease-out both;
+}
+
+/* Focused-item micro-pop: one-shot transform, fine off the hot path. */
+@keyframes fx-item-pop {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.fx-item-pop {
+  animation: fx-item-pop 240ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}

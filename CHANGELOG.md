@@ -1,3 +1,9 @@
+## 1.1.0
+- Knob overhaul: inertial scroll + focus system across the whole UI — the knob glides focus through items with momentum, lands with a spring snap and scale pop, and click activates the focused item. Detents tighten while music plays.
+- Now Playing: the knob scrubs time (velocity-sensitive, 5s to 30s per detent) with an on-screen time HUD; seeks commit on settle. Click toggles play/pause.
+- Volume mode: long-press the knob for a volume HUD with level bar; rotate to adjust, click or 3s idle to exit.
+- Album art blooms with a shader glow on track change; sheets get a liquid-glass treatment; views crossfade with a spring and Now Playing opens with an iris reveal.
+
 ## 1.0.70
 - App icon: zoomed-in finch head mark with smoothed edges, keeping the clear beak-to-head separation.
 

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Icon, usePlayer } from './components';
 import { player } from './player';
 import type { RemoteSessionInfo } from './remote';
+import { FocusScope } from './fx/focus';
+import { GlassPanel } from './fx/shaders';
 
 // "Play on" picker: this device (the companion app, the default path) or
 // another Jellyfin client's session on the server — Finamp, Jellyfin Web,
@@ -46,18 +48,22 @@ export function RemoteSheet({ onClose }: { onClose: () => void }) {
     'flex w-full items-center gap-4 rounded-2xl px-4 py-4 text-left active:bg-white/10';
 
   return (
-    <div className="absolute inset-0 z-30">
-      <button
-        type="button"
-        aria-label="Close device picker"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/50"
-      />
-      <div className="absolute inset-x-0 bottom-0 top-[25%] flex flex-col overflow-hidden rounded-t-3xl bg-[#171a21]/95 shadow-2xl backdrop-blur-xl">
+    <FocusScope>
+      <div className="absolute inset-0 z-30">
+        <button
+          type="button"
+          data-focusable
+          aria-label="Close device picker"
+          onClick={onClose}
+          className="absolute inset-0 bg-black/50"
+        />
+        <div className="absolute inset-x-0 bottom-0 top-[25%] overflow-hidden rounded-t-3xl">
+        <GlassPanel className="flex h-full flex-col">
         <div className="flex shrink-0 items-center justify-between px-6 py-5">
           <div className="text-2xl font-bold">Play on</div>
           <button
             type="button"
+            data-focusable
             aria-label="Close"
             onClick={onClose}
             className="grid h-12 w-12 place-items-center rounded-full text-white/60 active:bg-white/10"
@@ -66,7 +72,7 @@ export function RemoteSheet({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8">
-          <button type="button" onClick={() => { player.disableRemote(); onClose(); }} className={row}>
+          <button type="button" data-focusable onClick={() => { player.disableRemote(); onClose(); }} className={row}>
             <Icon name="note" size={30} className="shrink-0 text-white/60" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-xl font-semibold">This device</div>
@@ -93,6 +99,7 @@ export function RemoteSheet({ onClose }: { onClose: () => void }) {
                 key={s.id}
                 type="button"
                 disabled={s.offline}
+                data-focusable={s.offline ? undefined : true}
                 onClick={() => choose(s)}
                 className={row + (s.offline ? ' cursor-default opacity-45' : '')}
               >
@@ -119,7 +126,9 @@ export function RemoteSheet({ onClose }: { onClose: () => void }) {
             active first.
           </div>
         </div>
-      </div>
+        </GlassPanel>
+        </div>
     </div>
+    </FocusScope>
   );
 }
