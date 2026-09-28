@@ -310,6 +310,9 @@
 ## 1.0.64
 - No more mystery blip: the pause-yield abandon no longer fires while the app is closed/backgrounded (it used to play a second of audio out of nowhere if the WebView was still alive after closing).
 
+## 1.0.69
+- App icon refined: smaller rounded beak tilted slightly upward with clear separation from the head, sunset-to-pink gradient, high-quality redraw.
+
 ## 1.0.68
 - App icon recolored: finch head mark now in sunset yellow (#ee8939) on dark, replacing leaf green.
 
