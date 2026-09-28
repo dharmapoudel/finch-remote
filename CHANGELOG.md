@@ -1,3 +1,6 @@
+## 1.0.70
+- App icon: zoomed-in finch head mark with smoothed edges, keeping the clear beak-to-head separation.
+
 ## 1.0.53
 - Closing Now Playing from a playlist/album detail screen no longer strands you: minimizing now restores the full navigation stack from before Now Playing opened, so the back button pops to the parent list instead of being a dead no-op on a single-item stack.
 - Audio fight: Finch now proactively asks the companion for its player state every time the Bluetooth link (re)connects and feeds the answer through the normal snapshot path. A stuck iOS companion (holding the audio session exclusive after a pause, with its stream flag never cleared) sends no snapshot on its own, so the 15s pause-yield abandon previously never armed for it — now the proactive query triggers the yield.
