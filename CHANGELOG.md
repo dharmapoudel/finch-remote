@@ -1,3 +1,6 @@
+## 1.1.4
+- Restored the blurred-art backdrop behind the top tab bar: the tab strip itself stays fully transparent (no black background on it), and the blurred album art paints behind it again, fading into the page below.
+
 ## 1.1.3
 - The top tab bar is back to a clean transparent strip: the blurred-art backdrop behind it is removed (Home is plain black again, like 1.0.26).
 - Focus glow retargeting: tiles and cards now glow only around the artwork squircle instead of the whole tile; pills and circular buttons keep the box glow hugging their shape; invisible sheet backdrops show no glow at all.
