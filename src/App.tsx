@@ -154,7 +154,7 @@ function TopTabs({
 // tab switch. Tab views publish their art via publishAmbient().
 function TabBackdrop() {
   const { src, accent } = useAmbient();
-  return <AmbientArt src={src} accent={accent} height={340} fixed vibrant />;
+  return <AmbientArt src={src} accent={accent} fixed vibrant fullHeight />;
 }
 
 async function readCreds(): Promise<Creds | null> {

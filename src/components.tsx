@@ -1131,6 +1131,7 @@ export function AmbientArt({
   height = 320,
   fixed = false,
   vibrant = false,
+  fullHeight = false,
 }: {
   src: string | null;
   accent?: string | null;
@@ -1142,20 +1143,72 @@ export function AmbientArt({
   // vibrant lifts the art opacity and lightens the scrim so the fixed tab
   // backdrop reads as an extension of the view's art instead of a dark band.
   vibrant?: boolean;
+  // fullHeight stretches the backdrop to the full viewport height (for the
+  // fixed tab-strip backdrop) so the art fades smoothly toward the bottom
+  // of the screen instead of ending abruptly mid-screen.
+  fullHeight?: boolean;
 }) {
   const { url } = useCachedArt(src);
-  if (!url) return null;
+  // Crossfade: the currently-painted art stays mounted while the new art
+  // loads; the new layer fades in over it once ready. The old behavior
+  // returned null while loading, which flashed the backdrop out on every
+  // art change — that was the flicker.
+  const [displayed, setDisplayed] = useState<string | null>(null);
+  const [incoming, setIncoming] = useState<string | null>(null);
+  const [incomingOn, setIncomingOn] = useState(false);
+
+  useEffect(() => {
+    if (!url || url === displayed || url === incoming) return;
+    setIncoming(url);
+    setIncomingOn(false);
+  }, [url, displayed, incoming]);
+
+  useEffect(() => {
+    if (!incoming) return;
+    // Mount the new layer at opacity 0, then flip it on over two frames so
+    // the CSS transition actually animates instead of painting at full
+    // opacity immediately.
+    let raf = 0;
+    raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(() => setIncomingOn(true));
+    });
+    const t = window.setTimeout(() => {
+      setDisplayed(incoming);
+      setIncoming(null);
+      setIncomingOn(false);
+    }, 600);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
+  }, [incoming]);
+
+  if (!displayed && !incoming) return null;
+  const artOpacity = vibrant ? 0.7 : 0.4;
   return (
     <div
-      className={`pointer-events-none ${fixed ? 'fixed' : 'absolute'} inset-x-0 top-0 overflow-hidden`}
-      style={{ height }}
+      className={`pointer-events-none ${fixed ? 'fixed' : 'absolute'} ${
+        fullHeight ? 'inset-0' : 'inset-x-0 top-0'
+      } overflow-hidden`}
+      style={fullHeight ? undefined : { height }}
       aria-hidden
     >
-      <img
-        src={url}
-        className={`h-full w-full scale-150 object-cover blur-3xl ${vibrant ? 'opacity-70' : 'opacity-40'}`}
-        draggable={false}
-      />
+      {displayed ? (
+        <img
+          src={displayed}
+          className="h-full w-full scale-150 object-cover blur-3xl"
+          style={{ opacity: artOpacity }}
+          draggable={false}
+        />
+      ) : null}
+      {incoming ? (
+        <img
+          src={incoming}
+          className="absolute inset-0 h-full w-full scale-150 object-cover blur-3xl transition-opacity duration-500"
+          style={{ opacity: incomingOn ? artOpacity : 0 }}
+          draggable={false}
+        />
+      ) : null}
       {accent && (
         <div
           className={`absolute inset-0 ${vibrant ? 'opacity-50' : 'opacity-30'}`}
@@ -1164,7 +1217,18 @@ export function AmbientArt({
           }}
         />
       )}
-      <div className={`absolute inset-0 bg-gradient-to-b from-transparent ${vibrant ? 'via-zinc-950/10 to-zinc-950/70' : 'via-zinc-950/30 to-zinc-950'}`} />
+      {/* fullHeight fades all the way to solid at the bottom of the screen so
+          content stays readable; the fixed-height variant keeps its shorter
+          fade for in-view headers. */}
+      <div
+        className={`absolute inset-0 bg-gradient-to-b from-transparent ${
+          fullHeight
+            ? 'via-zinc-950/40 to-zinc-950'
+            : vibrant
+              ? 'via-zinc-950/10 to-zinc-950/70'
+              : 'via-zinc-950/30 to-zinc-950'
+        }`}
+      />
     </div>
   );
 }
