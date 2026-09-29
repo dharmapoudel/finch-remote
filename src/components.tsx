@@ -1125,6 +1125,7 @@ export function useArtAccent(src: string | null): string | null {
 /* Ambient blurred-artwork backdrop: the source art blown up and blurred
    behind a scrim, plus an optional art-accent glow. Pinned to the top of
    the scrolling view it wraps. */
+type AmbientLayer = { url: string; accent: string | null };
 export function AmbientArt({
   src,
   accent,
@@ -1152,16 +1153,26 @@ export function AmbientArt({
   // Crossfade: the currently-painted art stays mounted while the new art
   // loads; the new layer fades in over it once ready. The old behavior
   // returned null while loading, which flashed the backdrop out on every
-  // art change — that was the flicker.
-  const [displayed, setDisplayed] = useState<string | null>(null);
-  const [incoming, setIncoming] = useState<string | null>(null);
+  // art change — that was the flicker. The accent glow rides inside each
+  // layer so image + accent crossfade as one unit; swapping the accent
+  // instantly while the image faded was the "not smoothly applied" pop
+  // when drilling into an album/playlist.
+  const [displayed, setDisplayed] = useState<AmbientLayer | null>(null);
+  const [incoming, setIncoming] = useState<AmbientLayer | null>(null);
   const [incomingOn, setIncomingOn] = useState(false);
 
   useEffect(() => {
-    if (!url || url === displayed || url === incoming) return;
-    setIncoming(url);
-    setIncomingOn(false);
-  }, [url, displayed, incoming]);
+    if (!url) return;
+    const a = accent ?? null;
+    if (displayed && displayed.url === url) {
+      if (displayed.accent !== a) setDisplayed({ url, accent: a });
+      return;
+    }
+    if (!incoming || incoming.url !== url) {
+      setIncoming({ url, accent: a });
+      setIncomingOn(false);
+    }
+  }, [url, accent, displayed, incoming]);
 
   useEffect(() => {
     if (!incoming) return;
@@ -1185,6 +1196,29 @@ export function AmbientArt({
 
   if (!displayed && !incoming) return null;
   const artOpacity = vibrant ? 0.7 : 0.4;
+  const accentOpacity = vibrant ? 0.5 : 0.3;
+  const renderLayer = (l: AmbientLayer, isIncoming: boolean, on: boolean) => (
+    <div
+      className={`absolute inset-0 ${isIncoming ? 'transition-opacity duration-500' : ''}`}
+      style={{ opacity: isIncoming ? (on ? 1 : 0) : 1 }}
+    >
+      <img
+        src={l.url}
+        className="h-full w-full scale-150 object-cover blur-3xl"
+        style={{ opacity: artOpacity }}
+        draggable={false}
+      />
+      {l.accent ? (
+        <div
+          className="absolute inset-0"
+          style={{
+            opacity: accentOpacity,
+            background: `radial-gradient(120% 90% at 50% 0%, ${l.accent} 0%, transparent 70%)`,
+          }}
+        />
+      ) : null}
+    </div>
+  );
   return (
     <div
       className={`pointer-events-none ${fixed ? 'fixed' : 'absolute'} ${
@@ -1193,30 +1227,8 @@ export function AmbientArt({
       style={fullHeight ? undefined : { height }}
       aria-hidden
     >
-      {displayed ? (
-        <img
-          src={displayed}
-          className="h-full w-full scale-150 object-cover blur-3xl"
-          style={{ opacity: artOpacity }}
-          draggable={false}
-        />
-      ) : null}
-      {incoming ? (
-        <img
-          src={incoming}
-          className="absolute inset-0 h-full w-full scale-150 object-cover blur-3xl transition-opacity duration-500"
-          style={{ opacity: incomingOn ? artOpacity : 0 }}
-          draggable={false}
-        />
-      ) : null}
-      {accent && (
-        <div
-          className={`absolute inset-0 ${vibrant ? 'opacity-50' : 'opacity-30'}`}
-          style={{
-            background: `radial-gradient(120% 90% at 50% 0%, ${accent} 0%, transparent 70%)`,
-          }}
-        />
-      )}
+      {displayed ? renderLayer(displayed, false, true) : null}
+      {incoming ? renderLayer(incoming, true, incomingOn) : null}
       {/* fullHeight fades all the way to solid at the bottom of the screen so
           content stays readable; the fixed-height variant keeps its shorter
           fade for in-view headers. */}
