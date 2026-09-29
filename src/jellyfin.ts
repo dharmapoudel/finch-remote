@@ -658,6 +658,14 @@ export class JellyfinClient {
     return normalizeTrack(raw);
   }
 
+  // Primary image tag for any library item. The playlist detail screen only
+  // loads tracks, never the playlist item itself — this fills the gap when
+  // recording a playlist play for the recently-played rail.
+  async itemImageTag(itemId: string): Promise<string | null> {
+    const raw = await this.request<RawItem>('GET', `/Users/${this.creds.userId}/Items/${itemId}`, {});
+    return raw.ImageTags?.Primary ?? null;
+  }
+
   // Resume detection: is OUR device already playing something on the server?
   // Only our own DeviceId counts — never claim another client's playback.
   // Stale sessions (no activity for a while) are ignored.

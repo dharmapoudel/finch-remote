@@ -133,7 +133,20 @@ export default function Detail({ jf, nav, openMenu, params }: ViewProps & { para
   const playAll = (shuffle: boolean): void => {
     if (tracks?.length) {
       if (params.kind === 'playlist') {
-        recordPlaylistPlay({ id: params.id, name: params.title, songCount: tracks.length, imageTag: null });
+        // The detail load fetches tracks but never the playlist item
+        // itself, so grab its image tag for the recently-played entry —
+        // it was hardcoded to null, which left those tiles artless.
+        void jf
+          .itemImageTag(params.id)
+          .catch(() => null)
+          .then(tag =>
+            recordPlaylistPlay({
+              id: params.id,
+              name: params.title,
+              songCount: tracks.length,
+              imageTag: tag,
+            }),
+          );
       }
       nav({ name: 'nowplaying' });
       if (shuffle) {

@@ -1,3 +1,6 @@
+## 1.1.16
+- Fixed recently-played playlist artwork: playing a playlist from its detail screen recorded the play with no image tag (hardcoded null), so those tiles showed no art in the Playlists tab's Recently played rail. The detail screen now fetches the playlist's image tag when you hit play, matching the long-press menu path which already recorded it correctly.
+
 ## 1.1.7
 - Tab switches no longer "jump": switching directly between the four main tabs (hardware keys or the tab strip) swaps content instantly again, like 1.0.70 did. The 1.1.0 "views crossfade with a spring" animation replayed on every tab switch, making each key press visibly slide/scale the whole view. The animation now only plays when drilling in/out (opening a list or detail, going back, Now Playing) — never on a tab switch. (It also could no longer re-arm itself on a later re-render, which the first attempt at this fix got wrong.)
 
