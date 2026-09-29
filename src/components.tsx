@@ -279,7 +279,6 @@ export function useCachedArt(
       return;
     }
     let dead = false;
-    let retryTimer: number | null = null;
     setFailed(false);
     const hit = artObjects.get(src);
     if (hit) {
@@ -290,33 +289,18 @@ export function useCachedArt(
     // If the tile scrolls out of view while queued, abandon the fetch before
     // it touches the Bluetooth link (netgate shouldSkip). The dead flag still
     // guards the React side for loads already in flight.
+    // No in-session retry: if the load fails, the tile simply mounts fresh
+    // on the next app load (or scrolls back into view) and pulls the art
+    // then — the persistent tier is checked before the network, so art that
+    // did load is never re-fetched.
     const shouldSkip = aliveRef ? () => !aliveRef.current : undefined;
-    // Retry failed loads with exponential backoff: 2s, 5s, 10s, 20s. Retries
-    // ride the BACK of the net gate so they never block demand loads. A
-    // skipped load (tile scrolled away) is not a failure: no retry, no failed
-    // flag — the effect re-runs when the tile comes back into view.
-    let attempt = 0;
-    const tryLoad = () => {
+    void loadArt(src, 'front', shouldSkip).then(o => {
       if (dead) return;
-      void loadArt(src, attempt === 0 ? 'front' : 'back', shouldSkip).then(o => {
-        if (dead) return;
-        if (o) {
-          setObj(o);
-          return;
-        }
-        if (shouldSkip?.()) return; // scrolled away: not a failure
-        if (attempt < 4) {
-          attempt++;
-          retryTimer = window.setTimeout(tryLoad, [2000, 5000, 10000, 20000][attempt - 1]);
-        } else {
-          setFailed(true);
-        }
-      });
-    };
-    tryLoad();
+      if (o) setObj(o);
+      else setFailed(true);
+    });
     return () => {
       dead = true;
-      if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src, linkGen, gen]);
