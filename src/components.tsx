@@ -1154,15 +1154,20 @@ export function AmbientArt({
   // loads; the new layer fades in over it once ready. The old behavior
   // returned null while loading, which flashed the backdrop out on every
   // art change — that was the flicker. The accent glow rides inside each
-  // layer so image + accent crossfade as one unit; swapping the accent
-  // instantly while the image faded was the "not smoothly applied" pop
-  // when drilling into an album/playlist.
+  // layer so image + accent crossfade as one unit.
   const [displayed, setDisplayed] = useState<AmbientLayer | null>(null);
   const [incoming, setIncoming] = useState<AmbientLayer | null>(null);
   const [incomingOn, setIncomingOn] = useState(false);
+  // useCachedArt's url lags one render behind a src change. Without this
+  // guard, the frame where src is new but url is still the old art would
+  // paint the NEW accent onto the OLD art — the drill-in pop.
+  const prevSrcRef = useRef(src);
 
   useEffect(() => {
+    const srcChanged = prevSrcRef.current !== src;
+    prevSrcRef.current = src;
     if (!url) return;
+    if (srcChanged) return; // url is stale; wait for useCachedArt to catch up
     const a = accent ?? null;
     if (displayed && displayed.url === url) {
       if (displayed.accent !== a) setDisplayed({ url, accent: a });
@@ -1172,7 +1177,7 @@ export function AmbientArt({
       setIncoming({ url, accent: a });
       setIncomingOn(false);
     }
-  }, [url, accent, displayed, incoming]);
+  }, [url, src, accent, displayed, incoming]);
 
   useEffect(() => {
     if (!incoming) return;
