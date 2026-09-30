@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type TouchEvent as RTouchEvent } from 'react';
-import { Ghost, Icon, ProgressBar, TransportGlyph, useArt, useCachedArt, usePlayer, usePortrait } from '../components';
+import { Ghost, Icon, ProgressBar, TransportGlyph, readBlurSig, useArt, useCachedArt, usePlayer, usePortrait, warmArt } from '../components';
 import { useAccent, type Accent } from '../accent';
 import type { LyricLineVM } from '../jellyfin';
 import { player } from '../player';
@@ -383,7 +383,7 @@ function InfoPanel({
 }
 
 export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMinimize: () => void }) {
-  usePlayer();
+  const playerRev = usePlayer();
   const art = useArt();
   const portrait = usePortrait();
   const [remoteOpen, setRemoteOpen] = useState(false);
@@ -460,6 +460,39 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
   const { url: bgArt, failed: bgFailed } = useCachedArt(t ? (art?.trackArt(t, 160) ?? null) : null);
   const heroSrc = t && (bgArt || bgFailed) ? (art?.trackArt(t, 512) ?? null) : null;
   const { url: heroArt } = useCachedArt(heroSrc);
+
+  // Instant placeholder: a stored 16x16 blur signature paints with zero
+  // network while the 160px downloads (one local kv lookup, ~ms). Keyed by
+  // track id, falling back to the album id — the same preference the art
+  // itself uses. Cleared on track change so the old track's colors never
+  // linger; the 160px blur takes over seamlessly when it lands.
+  const [sigUrl, setSigUrl] = useState<string | null>(null);
+  useEffect(() => {
+    setSigUrl(null);
+    if (!t) return;
+    let dead = false;
+    void readBlurSig([t.id, t.albumId]).then(u => {
+      if (!dead) setSigUrl(u);
+    });
+    return () => {
+      dead = true;
+    };
+  }, [trackId, t?.albumId]);
+
+  // Shuffle/skipping ahead stays instant: pre-warm the next few tracks'
+  // small art at back priority. By the time the user (or auto-advance) gets
+  // there, the first pass is served from cache and only the 512 needs the
+  // network. Re-runs when the track or the queue length changes; warmArt
+  // no-ops on already-cached/inflight urls.
+  const queueLen = player.queue.length;
+  useEffect(() => {
+    if (!art || player.index < 0) return;
+    const upcoming: (string | null)[] = [];
+    for (let i = 1; i <= 5 && player.index + i < queueLen; i++) {
+      upcoming.push(art.trackArt(player.queue[player.index + i], 160));
+    }
+    if (upcoming.length) warmArt(upcoming, 5);
+  }, [art, trackId, queueLen, playerRev]);
 
   // Accent color pulled off the cover for the info panel wash + the
   // play/pause tint, o-music style.
@@ -558,7 +591,7 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
     </div>
   ) : heroArt || bgArt ? (
     <div className="relative h-full w-full overflow-hidden">
-      <ThumbHashHero lowSrc={bgArt} highSrc={heroArt} alt={t.album || t.name} />
+      <ThumbHashHero lowSrc={bgArt ?? sigUrl} highSrc={heroArt} alt={t.album || t.name} />
     </div>
   ) : (
     <div className="flex h-full w-full items-center justify-center bg-zinc-900">

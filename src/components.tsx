@@ -157,6 +157,98 @@ function persistWriteArt(url: string, bytes: Uint8Array): void {
   })();
 }
 
+// ------------------------------------------------------------------
+// Blur-signature tier: a 16x16 RGB snapshot (~1KB base64) per item, stashed
+// in the kv store whenever ANY artwork downloads. Now Playing reads it back
+// (one local lookup, no network) and paints an instant ThumbHash-style
+// placeholder for any track whose art was ever fetched — even long after its
+// 160px aged out of the 48-image LRU, or on a cold shuffle. Capped at 400
+// entries with LRU eviction, same discipline as the art cache. A lower-res
+// download would NOT fix the 1-2s cold wait: the bytes are already tiny and
+// the time goes to the phone asking Jellyfin to decode+resize plus the
+// Bluetooth round trips — only pixels already on the device are instant.
+// ------------------------------------------------------------------
+const BLUR_PREFIX = 'finch:blur:';
+const BLUR_INDEX = 'finch:blur:index';
+const BLUR_CAP = 400;
+const BLUR_PX = 16;
+const blurStashed = new Set<string>();
+
+function stashBlurSig(itemId: string, bytes: Uint8Array): void {
+  if (blurStashed.has(itemId)) return;
+  blurStashed.add(itemId);
+  void (async () => {
+    try {
+      // No MIME on the Blob: createImageBitmap trusts an explicit type over
+      // sniffing, and art bytes can be PNG/JPEG/WebP regardless of the
+      // 'image/jpeg' label used for the object URL.
+      const bmp = await createImageBitmap(new Blob([bytes as Uint8Array<ArrayBuffer>]));
+      const c = document.createElement('canvas');
+      c.width = BLUR_PX;
+      c.height = BLUR_PX;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) {
+        bmp.close();
+        return;
+      }
+      ctx.drawImage(bmp, 0, 0, BLUR_PX, BLUR_PX);
+      bmp.close();
+      const px = ctx.getImageData(0, 0, BLUR_PX, BLUR_PX).data;
+      const rgb = new Uint8Array(BLUR_PX * BLUR_PX * 3);
+      for (let i = 0, j = 0; i < px.length; i += 4, j += 3) {
+        rgb[j] = px[i];
+        rgb[j + 1] = px[i + 1];
+        rgb[j + 2] = px[i + 2];
+      }
+      const client = getClient();
+      const key = BLUR_PREFIX + itemId;
+      await client.store.put({ key, value: bytesToB64(rgb) });
+      const idxRaw = await persistRead(BLUR_INDEX);
+      const idx: string[] = idxRaw ? (JSON.parse(idxRaw) as string[]) : [];
+      const at = idx.indexOf(key);
+      if (at >= 0) idx.splice(at, 1);
+      idx.push(key);
+      while (idx.length > BLUR_CAP) {
+        const old = idx.shift()!;
+        if (old !== key) void client.store.put({ key: old, value: '' }).catch(() => {});
+      }
+      await client.store.put({ key: BLUR_INDEX, value: JSON.stringify(idx) });
+    } catch {
+      // A missing placeholder must never break art.
+    }
+  })();
+}
+
+// First stored signature wins; returns a 16x16 PNG data-URL or null.
+export async function readBlurSig(itemIds: (string | null | undefined)[]): Promise<string | null> {
+  for (const id of itemIds) {
+    if (!id) continue;
+    try {
+      const raw = await persistRead(BLUR_PREFIX + id);
+      if (!raw) continue;
+      const rgb = b64ToBytes(raw);
+      if (rgb.length !== BLUR_PX * BLUR_PX * 3) continue;
+      const c = document.createElement('canvas');
+      c.width = BLUR_PX;
+      c.height = BLUR_PX;
+      const ctx = c.getContext('2d');
+      if (!ctx) continue;
+      const img = ctx.createImageData(BLUR_PX, BLUR_PX);
+      for (let i = 0, j = 0; i < img.data.length; i += 4, j += 3) {
+        img.data[i] = rgb[j];
+        img.data[i + 1] = rgb[j + 1];
+        img.data[i + 2] = rgb[j + 2];
+        img.data[i + 3] = 255;
+      }
+      ctx.putImageData(img, 0, 0);
+      return c.toDataURL();
+    } catch {
+      // try the next id
+    }
+  }
+  return null;
+}
+
 async function fetchArtNetwork(url: string): Promise<string | null> {
   // Persistent tier before the network: a cold start reuses art it saw
   // in a previous session without touching the Bluetooth link at all.
@@ -197,6 +289,10 @@ async function fetchArtNetwork(url: string): Promise<string | null> {
   const obj = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
   rememberArt(url, obj);
   persistWriteArt(url, bytes);
+  // Blur signature for instant placeholders later: the item id rides in the
+  // Jellyfin image URL (/Items/{id}/Images/...). Fire-and-forget.
+  const m = /\/Items\/([^/?#]+)\//.exec(url);
+  if (m) stashBlurSig(m[1], bytes);
   return obj;
 }
 
