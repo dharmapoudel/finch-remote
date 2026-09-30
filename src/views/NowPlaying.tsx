@@ -451,11 +451,15 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
 
   // Full-bleed artwork for the hero panel, served from the shared blob cache.
   // A small copy doubles as the blurred lyrics backdrop (cheap to blur).
-  // Hero at 512px: the panel shows ~440px. The 160px art is already fetched
-  // for the backdrop/tint and renders instantly as the blurred ThumbHash
-  // placeholder until the hero fades in over it.
-  const { url: heroArt } = useCachedArt(t ? (art?.trackArt(t, 512) ?? null) : null);
-  const { url: bgArt } = useCachedArt(t ? (art?.trackArt(t, 160) ?? null) : null);
+  // TWO PASSES, in this order: the 160px art downloads FIRST and paints the
+  // blurred ThumbHash placeholder immediately; only once it is in hand (or
+  // failed) does the 512px hero start. This ordering is load-bearing: the
+  // art lane is strictly serial, so requesting the 512 first would block
+  // the 160 behind it and the screen would stay dark until the big download
+  // finished — exactly what shuffle-play showed on a cold cache.
+  const { url: bgArt, failed: bgFailed } = useCachedArt(t ? (art?.trackArt(t, 160) ?? null) : null);
+  const heroSrc = t && (bgArt || bgFailed) ? (art?.trackArt(t, 512) ?? null) : null;
+  const { url: heroArt } = useCachedArt(heroSrc);
 
   // Accent color pulled off the cover for the info panel wash + the
   // play/pause tint, o-music style.
