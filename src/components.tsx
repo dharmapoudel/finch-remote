@@ -1158,6 +1158,11 @@ export function AmbientArt({
   const [displayed, setDisplayed] = useState<AmbientLayer | null>(null);
   const [incoming, setIncoming] = useState<AmbientLayer | null>(null);
   const [incomingOn, setIncomingOn] = useState(false);
+  // The crossfade promotes the incoming layer when its opacity transition
+  // actually finishes (fired from the layer's onTransitionEnd). A ref is
+  // used because the handler lives on the rendered layer, outside the
+  // driver's effect closure.
+  const promoteRef = useRef<() => void>(() => {});
   // useCachedArt's url lags one render behind a src change. Without this
   // guard, the frame where src is new but url is still the old art would
   // paint the NEW accent onto the OLD art — the drill-in pop.
@@ -1185,14 +1190,27 @@ export function AmbientArt({
     // the CSS transition actually animates instead of painting at full
     // opacity immediately.
     let raf = 0;
-    raf = requestAnimationFrame(() => {
-      raf = requestAnimationFrame(() => setIncomingOn(true));
-    });
-    const t = window.setTimeout(() => {
+    let done = false;
+    const promote = () => {
+      if (done) return;
+      done = true;
       setDisplayed(incoming);
       setIncoming(null);
       setIncomingOn(false);
-    }, 600);
+    };
+    promoteRef.current = promote;
+    raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(() => setIncomingOn(true));
+    });
+    // Promote when the fade actually finishes (the incoming layer calls
+    // promoteRef on its opacity transitionend). A fixed wall-clock timeout
+    // is wrong here: when the main thread is busy — drill-in renders the
+    // track list, decodes art, and samples the accent all at once — the
+    // double-rAF above slips and the old 600ms timeout fired while the
+    // 500ms fade was still mid-flight, visibly cutting it off with a jump.
+    // The timeout below is only a safety net for a transition that never
+    // starts or never reports its end (hidden tab, throttled rAF).
+    const t = window.setTimeout(promote, 2000);
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(t);
@@ -1206,6 +1224,13 @@ export function AmbientArt({
     <div
       className={`absolute inset-0 ${isIncoming ? 'transition-opacity duration-500' : ''}`}
       style={{ opacity: isIncoming ? (on ? 1 : 0) : 1 }}
+      onTransitionEnd={
+        isIncoming
+          ? e => {
+              if (e.propertyName === 'opacity') promoteRef.current();
+            }
+          : undefined
+      }
     >
       <img
         src={l.url}
