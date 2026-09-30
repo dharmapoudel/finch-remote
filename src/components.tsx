@@ -1135,6 +1135,7 @@ export function AmbientArt({
   fixed = false,
   vibrant = false,
   fullHeight = false,
+  softBottom = false,
 }: {
   src: string | null;
   accent?: string | null;
@@ -1150,6 +1151,13 @@ export function AmbientArt({
   // fixed tab-strip backdrop) so the art fades smoothly toward the bottom
   // of the screen instead of ending abruptly mid-screen.
   fullHeight?: boolean;
+  // softBottom fades the whole layer out toward its bottom edge (mask, not
+  // the scrim) so an in-view header tint melts into the app-level backdrop
+  // behind it. Without this, the scrim's solid end at the layer's bottom
+  // edge draws a clear horizontal line where the brighter app backdrop
+  // continues below — the Detail header's 300px layer over the fullHeight
+  // tab backdrop showed exactly that seam.
+  softBottom?: boolean;
 }) {
   const { url } = useCachedArt(src);
   // Crossfade: the currently-painted art stays mounted while the new art
@@ -1256,7 +1264,17 @@ export function AmbientArt({
       className={`pointer-events-none ${fixed ? 'fixed' : 'absolute'} ${
         fullHeight ? 'inset-0' : 'inset-x-0 top-0'
       } overflow-hidden`}
-      style={fullHeight ? undefined : { height }}
+      style={{
+        ...(fullHeight ? undefined : { height }),
+        // The mask fades art + accent + scrim together; fading only the
+        // scrim would leave the art's own hard bottom edge visible.
+        ...(softBottom
+          ? {
+              maskImage: 'linear-gradient(to bottom, black 65%, transparent 100%)',
+              WebkitMaskImage: 'linear-gradient(to bottom, black 65%, transparent 100%)',
+            }
+          : undefined),
+      }}
       aria-hidden
     >
       {displayed ? renderLayer(displayed, false, true) : null}

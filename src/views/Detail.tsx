@@ -199,7 +199,7 @@ export default function Detail({ jf, nav, openMenu, params }: ViewProps & { para
   return (
     <div className="flex h-full flex-col">
       <div className="relative min-h-0 flex-1 overflow-y-auto">
-        <AmbientArt src={headerArt} accent={accent} height={portrait ? 160 : 300} />
+        <AmbientArt src={headerArt} accent={accent} height={portrait ? 160 : 300} softBottom />
         <div className="relative px-5 py-5">
           {error ? (
             <Empty text={`Could not load: ${error}`} onRetry={() => setRetryKey(k => k + 1)} />
