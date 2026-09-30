@@ -214,14 +214,16 @@ async function loadArt(
   // load's skip-check belongs to another tile, so one tile scrolling away
   // could abandon art a still-visible tile needs. Completed art is still
   // shared via artObjects; the only cost is a rare duplicate in-flight fetch
-  // (still gated to 3 slots).
+  // (still serialized through the art lane).
   if (!shouldSkip) {
     const inflight = artInflight.get(url);
     if (inflight) return inflight;
   }
-  // Demand loads jump to the FRONT of the net gate: something on screen now
-  // (the Now Playing hero, a freshly mounted tile) beats background JSON.
-  const p = gatedNet(() => fetchArtNetwork(url), priority, shouldSkip).finally(() => {
+  // Demand loads jump to the FRONT of the art lane: something on screen now
+  // (the Now Playing hero, a freshly mounted tile) beats queued prefetch.
+  // Art runs on its own strictly-serial lane so image downloads can never
+  // crowd JSON/commands off the Bluetooth link.
+  const p = gatedNet(() => fetchArtNetwork(url), priority, shouldSkip, 'art').finally(() => {
     if (artInflight.get(url) === p) artInflight.delete(url);
   });
   if (!shouldSkip) artInflight.set(url, p);

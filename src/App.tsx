@@ -48,10 +48,12 @@ const NAV_ITEMS: { view: View; icon: 'home' | 'playlist' | 'album' | 'library'; 
 // the preset centers as PRESET_AT = [12.5, 37.5, 62.5, 87.5] (evenly spread
 // with matching margins), so these are used verbatim instead of measured.
 // The label sits under its line, like o-music's COVER. The bottom nav bar is
-// gone to reclaim vertical space. The tab's icon is revealed only while the
-// button is pressed: it drops down under the line, then slides back up and
-// hides when the press is lifted. The active tab is shown by its leaf-green
-// line and bright label.
+// gone to reclaim vertical space. The tab's icon is revealed only while its
+// button is held: a touch press reveals it for the tap's duration; a hardware
+// preset short-press switches tabs with no reveal at all, and only a held
+// (long-press) preset reveals the icon — it drops down under the line, then
+// slides back up and hides when the press is lifted. The active tab is shown
+// by its leaf-green line and bright label.
 const TAB_X = ['12.5%', '37.5%', '62.5%', '87.5%']; // o-music PRESET_AT, all four used
 function TopTabs({
   view,
@@ -114,9 +116,10 @@ function TopTabs({
                 active ? 'w-12 bg-leaf' : 'w-8 bg-white/20'
               }`}
             />
-            {/* the icon: revealed only while the button is pressed (touch or
-                hardware), pushing down above the line; slides back up and
-                hides when the press is lifted */}
+            {/* the icon: revealed while a touch press is held, or while a
+                hardware preset is held past the long-press threshold; a
+                short preset press switches tabs with no reveal. Pushes down
+                above the line; slides back up and hides on lift */}
             <div
               className={`grid transition-all duration-300 ease-out ${
                 pressed ? 'mt-1.5 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
@@ -375,10 +378,10 @@ export default function App() {
     setStack(prev => (isRoot ? [v] : [...prev, v]));
   }, []);
 
-  // which top tab is currently pressed (touch or hardware preset button).
-  // drives the icon push-down reveal; a hardware press never sets :active
-  // on the on-screen button, so this is state-driven instead of CSS-only.
-  // (defined after nav: pressTab navigates on hardware presses.)
+  // which top tab is currently pressed. Drives the icon push-down reveal; a
+  // hardware press never sets :active on the on-screen button, so this is
+  // state-driven instead of CSS-only. (defined after nav: pressTab navigates
+  // on hardware presses.)
   const [pressedIdx, setPressedIdx] = useState<number | null>(null);
   const pressClearRef = useRef<number | null>(null);
   const clearPressed = useCallback(() => {
@@ -388,18 +391,33 @@ export default function App() {
     }
     setPressedIdx(null);
   }, []);
+  // Long-press threshold before a HELD hardware preset button reveals its
+  // tab icon. A short press just switches tabs (the bar animates as usual)
+  // with no icon reveal; holding past this reveals the icon until lift.
+  const pressTimerRef = useRef<number | null>(null);
+  const cancelPressTimer = useCallback(() => {
+    if (pressTimerRef.current !== null) {
+      window.clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+  }, []);
   const pressTab = useCallback(
-    (i: number, v: View) => {
-      setPressedIdx(i);
-      // safety: if the device never sends keyup, don't leave the icon stuck
-      if (pressClearRef.current !== null) window.clearTimeout(pressClearRef.current);
-      pressClearRef.current = window.setTimeout(() => {
-        pressClearRef.current = null;
-        setPressedIdx(null);
-      }, 1200);
-      nav(v);
+    (i: number, v: View, isRepeat: boolean) => {
+      if (isRepeat) return; // key auto-repeat: the first keydown already handled it
+      nav(v); // short press: switch tabs immediately, no icon reveal
+      cancelPressTimer();
+      pressTimerRef.current = window.setTimeout(() => {
+        pressTimerRef.current = null;
+        setPressedIdx(i); // held past the threshold: reveal the icon
+        // safety: if the device never sends keyup, don't leave the icon stuck
+        if (pressClearRef.current !== null) window.clearTimeout(pressClearRef.current);
+        pressClearRef.current = window.setTimeout(() => {
+          pressClearRef.current = null;
+          setPressedIdx(null);
+        }, 1200);
+      }, 500);
     },
-    [nav],
+    [nav, cancelPressTimer],
   );
 
   const minimizeNowPlaying = useCallback(() => {
@@ -566,37 +584,45 @@ export default function App() {
         return;
       }
       // preset shortcuts, ignored while typing in the on-screen keyboard views.
-      // they also drive the tab's press-reveal animation, since a hardware
-      // press never gives the on-screen button a CSS :active.
+      // a short press just switches tabs (the bar animates as usual); holding
+      // the button past the long-press threshold reveals the tab's icon,
+      // since a hardware press never gives the on-screen button a CSS :active.
       if (v.name === 'setup') return;
-      if (e.key === '1') pressTab(0, { name: 'home' });
-      else if (e.key === '2') pressTab(1, { name: 'playlists' });
-      else if (e.key === '3') pressTab(2, { name: 'albums' });
-      else if (e.key === '4') pressTab(3, { name: 'library' });
+      if (e.key === '1') pressTab(0, { name: 'home' }, e.repeat);
+      else if (e.key === '2') pressTab(1, { name: 'playlists' }, e.repeat);
+      else if (e.key === '3') pressTab(2, { name: 'albums' }, e.repeat);
+      else if (e.key === '4') pressTab(3, { name: 'library' }, e.repeat);
     };
     window.addEventListener('keydown', onKey);
-    // lifting a hardware preset button ends the tab press reveal; the
-    // timeout in pressTab covers devices that never send keyup
+    // lifting a hardware preset button cancels a pending long-press reveal
+    // and ends an active one; the timeout in pressTab covers devices that
+    // never send keyup
     const onKeyUp = (e: KeyboardEvent): void => {
-      if (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4') clearPressed();
+      if (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4') {
+        cancelPressTimer();
+        clearPressed();
+      }
     };
     window.addEventListener('keyup', onKeyUp);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [back, minimizeNowPlaying, nav, pressTab, clearPressed]);
+  }, [back, minimizeNowPlaying, nav, pressTab, clearPressed, cancelPressTimer]);
 
   const artResolver: ArtResolver | null = useMemo(
     () =>
       jf
         ? {
-            // list/grid thumbs render at 56-160px: 256px source is plenty, and
-            // every byte rides the Bluetooth link via net.fetch.
-            trackArt: (t, w = 256) => jf.trackImage(t, w),
-            albumArt: (a, w = 256) => (a.imageTag ? jf.imageUrl(a.id, w) : null),
-            artistArt: (a, w = 256) => (a.imageTag ? jf.imageUrl(a.id, w) : null),
-            playlistArt: (p, w = 256) => (p.imageTag ? jf.imageUrl(p.id, w) : null),
+            // Tile/squircle art downloads at squircle size: tiles render at
+            // 120-140px (rows at 52-56px), so 160px is crisp with far fewer
+            // bytes over the Bluetooth link than the old 256. Higher quality
+            // (512) is fetched on demand only — drill-in headers and the Now
+            // Playing hero pass an explicit width.
+            trackArt: (t, w = 160) => jf.trackImage(t, w),
+            albumArt: (a, w = 160) => (a.imageTag ? jf.imageUrl(a.id, w) : null),
+            artistArt: (a, w = 160) => (a.imageTag ? jf.imageUrl(a.id, w) : null),
+            playlistArt: (p, w = 160) => (p.imageTag ? jf.imageUrl(p.id, w) : null),
           }
         : null,
     [jf],

@@ -32,11 +32,11 @@ function artistMenu(jf: JellyfinClient, nav: NavFn, openMenu: ViewProps['openMen
   ]);
 }
 
-// Artwork loads on demand as tiles mount (IntersectionObserver + the
-// 4-concurrent gate in components.tsx). The old warmArt prefetch fired up
-// to 48 image fetches at the exact moment the list JSON was in flight,
-// and that combined burst was knocking the Bluetooth link over — so no
-// prefetch here; visible tiles still paint fast via the demand loader.
+// Artwork loads on demand as tiles mount (IntersectionObserver + the serial
+// art lane in netgate.ts). The old warmArt prefetch fired up to 48 image
+// fetches at the exact moment the list JSON was in flight, and that combined
+// burst was knocking the Bluetooth link over — so no prefetch here; visible
+// tiles still paint fast via the demand loader.
 
 // ---- Library tab: Artists + Genres sections ----
 
@@ -51,7 +51,7 @@ export default function Library({ jf, nav, openMenu }: ViewProps) {
   // Blurred backdrop behind the transparent tab strip: the first artist's
   // art. Fixed so it paints behind the tabs.
   const ambientArtist = artists.data?.[0] ?? null;
-  const ambientSrc = ambientArtist && art ? (art.artistArt(ambientArtist, 256) ?? null) : null;
+  const ambientSrc = ambientArtist && art ? (art.artistArt(ambientArtist, 160) ?? null) : null;
   const accent = useArtAccent(ambientSrc);
   // Publish to the single app-level tab-strip backdrop (nulls ignored so a
   // loading tab never blanks the previous tab's art).

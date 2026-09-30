@@ -33,7 +33,7 @@ export default function PlaylistsHome({ jf, nav, openMenu }: ViewProps) {
   // Blurred backdrop behind the transparent tab strip: first favorite
   // playlist, else the first playlist. Fixed so it paints behind the tabs.
   const ambientPl = favs.data?.[0] ?? all.data?.[0] ?? null;
-  const ambientSrc = ambientPl && art ? (art.playlistArt(ambientPl, 256) ?? null) : null;
+  const ambientSrc = ambientPl && art ? (art.playlistArt(ambientPl, 160) ?? null) : null;
   const accent = useArtAccent(ambientSrc);
   // Publish to the single app-level tab-strip backdrop (nulls ignored so a
   // loading tab never blanks the previous tab's art).

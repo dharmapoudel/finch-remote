@@ -105,7 +105,7 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
   // Fixed so it paints behind the transparent top tab strip as well.
   const ambientTrack =
     (nowActive ? recent.data?.find(t => t.id === nowId) : null) ?? recent.data?.[0] ?? null;
-  const ambientSrc = ambientTrack && art ? (art.trackArt(ambientTrack, 256) ?? null) : null;
+  const ambientSrc = ambientTrack && art ? (art.trackArt(ambientTrack, 160) ?? null) : null;
   const accent = useArtAccent(ambientSrc);
   // The single app-level backdrop (outside the animated view wrapper, which
   // would trap it) shows this tab's art. Nulls are ignored by the bus so a

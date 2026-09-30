@@ -568,14 +568,14 @@ export class JellyfinClient {
   }
 
   // Plain <img> needs no CORS, so artwork goes straight at the server.
-  // Tile art is 256px / q80: a tile renders at ~160px, so this is already
-  // oversampled — and every byte rides the Bluetooth link via net.fetch.
-  imageUrl(itemId: string, width = 500): string {
+  // Tile art is 160px / q80: tiles render at 120-140px, so this is crisp
+  // with far fewer bytes over the Bluetooth link than the old 256.
+  imageUrl(itemId: string, width = 160): string {
     return this.url(`/Items/${itemId}/Images/Primary`, { fillWidth: width, quality: 80 });
   }
 
   // Artwork for a track: its own image, else its album's.
-  trackImage(track: Track, width = 500): string | null {
+  trackImage(track: Track, width = 160): string | null {
     if (track.imageTag) return this.imageUrl(track.id, width);
     if (track.albumId) return this.imageUrl(track.albumId, width);
     return null;

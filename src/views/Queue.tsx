@@ -28,7 +28,7 @@ export default function Queue({ back }: ViewProps) {
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {current ? (
           <div className="mb-2 flex items-center gap-3 rounded-2xl bg-leaf/10 p-2">
-            <Artwork src={art?.trackArt(current, 200) ?? null} size={56} rounded="rounded-lg" label={current.album} />
+            <Artwork src={art?.trackArt(current, 160) ?? null} size={56} rounded="rounded-lg" label={current.album} />
             <div className="min-w-0 flex-1">
               <div className="truncate text-xl font-medium text-leaf">{current.name}</div>
               <div className="truncate text-base text-white/50">Now playing · {current.artist}</div>
@@ -50,7 +50,7 @@ export default function Queue({ back }: ViewProps) {
                   onClick={() => void player.jumpTo(qi)}
                   className="flex min-w-0 flex-1 items-center gap-3 text-left"
                 >
-                  <Artwork src={art?.trackArt(t, 200) ?? null} size={52} rounded="rounded-lg" label={t.album} />
+                  <Artwork src={art?.trackArt(t, 160) ?? null} size={52} rounded="rounded-lg" label={t.album} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xl leading-tight">{t.name}</span>
                     <span className="block truncate text-base leading-tight text-white/50">{t.artist}</span>

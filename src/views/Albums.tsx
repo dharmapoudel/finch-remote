@@ -61,7 +61,7 @@ export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
   // album, else the most recently played album, else the first album.
   // Fixed so it paints behind the tabs.
   const ambientAlbum = favs.data?.[0] ?? recentAlbums?.[0] ?? albums.data?.[0] ?? null;
-  const ambientSrc = ambientAlbum && art ? (art.albumArt(ambientAlbum, 256) ?? null) : null;
+  const ambientSrc = ambientAlbum && art ? (art.albumArt(ambientAlbum, 160) ?? null) : null;
   const accent = useArtAccent(ambientSrc);
   // Publish to the single app-level tab-strip backdrop (nulls ignored so a
   // loading tab never blanks the previous tab's art).

@@ -38,7 +38,7 @@ export function QueueSheet({ onClose, onOpenNowPlaying }: { onClose: () => void;
   const upcoming = player.queue.slice(player.index + 1);
   const current = player.current();
   // the now-playing card picks up the track's art color
-  const npArt = current && art ? (art.trackArt(current, 200) ?? null) : null;
+  const npArt = current && art ? (art.trackArt(current, 160) ?? null) : null;
   const npAccent = useArtAccent(npArt);
   const sheetRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -134,7 +134,7 @@ export function QueueSheet({ onClose, onOpenNowPlaying }: { onClose: () => void;
                 className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left active:bg-white/8"
               >
                 <Artwork
-                  src={art?.trackArt(current, 200) ?? null}
+                  src={art?.trackArt(current, 160) ?? null}
                   size={56}
                   rounded="rounded-lg"
                   label={current.album}
@@ -169,7 +169,7 @@ export function QueueSheet({ onClose, onOpenNowPlaying }: { onClose: () => void;
                     onClick={() => void player.jumpTo(qi)}
                     className="flex min-w-0 flex-1 items-center gap-3 text-left"
                   >
-                    <Artwork src={art?.trackArt(t, 200) ?? null} size={52} rounded="rounded-lg" label={t.album} />
+                    <Artwork src={art?.trackArt(t, 160) ?? null} size={52} rounded="rounded-lg" label={t.album} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xl leading-tight">{t.name}</span>
                       <span className="block truncate text-base leading-tight text-white/50">{t.artist}</span>

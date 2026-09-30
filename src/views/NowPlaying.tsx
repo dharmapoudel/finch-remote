@@ -416,7 +416,7 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
   // bytes. The 200px art is already fetched for the backdrop/tint and renders
   // instantly as a progressive placeholder until the hero arrives.
   const { url: heroArt } = useCachedArt(t ? (art?.trackArt(t, 512) ?? null) : null);
-  const { url: bgArt } = useCachedArt(t ? (art?.trackArt(t, 200) ?? null) : null);
+  const { url: bgArt } = useCachedArt(t ? (art?.trackArt(t, 160) ?? null) : null);
 
   // Accent color pulled off the cover for the info panel wash + the
   // play/pause tint, o-music style.

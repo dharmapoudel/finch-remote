@@ -1,3 +1,7 @@
+## 1.1.18
+- Bluetooth link stays up on fresh installs: artwork downloads now drain through their own strictly-serial queue (one image at a time) instead of sharing the 3-slot gate with library JSON — a burst of tile art can no longer crowd the phone while it's buffering replies, and library lists always keep free slots. Tile art also downloads at squircle size (160px, down from 256) since tiles render at 120-140px; the sharper 512px version still loads on demand when you drill into a detail header or Now Playing.
+- Preset buttons: a short press now just switches tabs (the bar animates as usual) with no icon push-down reveal — the reveal only plays when you hold the button past a half-second long-press, then slides back up on lift. Touch taps on the tab strip are unchanged.
+
 ## 1.1.16
 - Fixed recently-played playlist artwork: playing a playlist from its detail screen recorded the play with no image tag (hardcoded null), so those tiles showed no art in the Playlists tab's Recently played rail. The detail screen now fetches the playlist's image tag when you hit play, matching the long-press menu path which already recorded it correctly.
 
