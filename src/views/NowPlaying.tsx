@@ -412,9 +412,9 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
 
   // Full-bleed artwork for the hero panel, served from the shared blob cache.
   // A small copy doubles as the blurred lyrics backdrop (cheap to blur).
-  // Hero at 600px: the panel shows ~440px, so 800 was pure extra Bluetooth
-  // bytes. The 200px art is already fetched for the backdrop/tint and renders
-  // instantly as a progressive placeholder until the hero arrives.
+  // Hero at 512px: the panel shows ~440px. The 160px art is already fetched
+  // for the backdrop/tint and renders instantly as a progressive placeholder
+  // until the hero arrives, then BloomArt swaps it in (replaying the bloom).
   const { url: heroArt } = useCachedArt(t ? (art?.trackArt(t, 512) ?? null) : null);
   const { url: bgArt } = useCachedArt(t ? (art?.trackArt(t, 160) ?? null) : null);
 

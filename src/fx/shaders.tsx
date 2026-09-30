@@ -4,7 +4,7 @@ import type { JSX, ReactNode } from "react";
 /* ------------------------------------------------------------------ */
 /* BloomArt: album art that "blooms" on track change                    */
 /*                                                                      */
-/* A <=256px WebGL canvas renders the art once per track (no per-frame */
+/* A <=512px WebGL canvas renders the art once per track (no per-frame */
 /* JS) with a fragment shader: chromatic aberration scaled by distance  */
 /* from center + a soft radial glow. If WebGL or anything else fails,   */
 /* it falls back to a plain <img> + animated radial glow.              */
@@ -90,7 +90,11 @@ function renderBloomOnce(
   img: HTMLImageElement,
 ): boolean {
   try {
-    const MAX = 256;
+    // The Now Playing hero panel shows ~440px, so render up to 512px: the
+    // hero art is downloaded at 512 and anything less looks soft stretched
+    // to full-bleed. The shader is all UV-space math, so resolution only
+    // changes sharpness, not the bloom look. Still a single one-time draw.
+    const MAX = 512;
     const longest = Math.max(img.naturalWidth, img.naturalHeight, 1);
     const scale = Math.min(1, MAX / longest);
     const w = Math.max(1, Math.round(img.naturalWidth * scale));
