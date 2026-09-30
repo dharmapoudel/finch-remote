@@ -1,12 +1,51 @@
-import { useEffect, useRef, useState, type TouchEvent as RTouchEvent } from 'react';
+import { useEffect, useRef, useState, type JSX, type TouchEvent as RTouchEvent } from 'react';
 import { Ghost, Icon, ProgressBar, TransportGlyph, useArt, useCachedArt, usePlayer, usePortrait } from '../components';
 import { useAccent, type Accent } from '../accent';
 import type { LyricLineVM } from '../jellyfin';
 import { player } from '../player';
 import { knob } from '../fx/knob';
-import { BloomArt } from '../fx/shaders';
 import { RemoteSheet } from '../RemoteSheet';
 import type { ViewProps } from '../nav';
+
+// ThumbHash-style hero: no WebGL, no bloom. The 160px art (already fetched
+// for the backdrop/tint) is blown up and heavily blurred as the placeholder
+// — visually what a decoded ThumbHash looks like (a real ThumbHash needs
+// server-side hashes, which Jellyfin doesn't serve; blurring the small art
+// we already hold is the honest equivalent). The 512px hero fades in over
+// it when it arrives. Keyed by src so a track change replays the reveal.
+export function ThumbHashHero({
+  lowSrc,
+  highSrc,
+  alt,
+}: {
+  lowSrc: string | null;
+  highSrc: string | null;
+  alt: string;
+}): JSX.Element {
+  return (
+    <div className="relative h-full w-full overflow-hidden bg-zinc-950">
+      {lowSrc ? (
+        <img
+          key={lowSrc}
+          src={lowSrc}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className="absolute inset-0 h-full w-full scale-125 object-cover blur-3xl"
+        />
+      ) : null}
+      {highSrc ? (
+        <img
+          key={highSrc}
+          src={highSrc}
+          alt={alt}
+          draggable={false}
+          className="animate-hero-in absolute inset-0 h-full w-full object-cover"
+        />
+      ) : null}
+    </div>
+  );
+}
 
 // Lyrics view state. Shape borrowed from Ousa-Music-Player's useLyrics:
 // loading / none / timed / plain are all ordinary outcomes, none an error.
@@ -413,8 +452,8 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
   // Full-bleed artwork for the hero panel, served from the shared blob cache.
   // A small copy doubles as the blurred lyrics backdrop (cheap to blur).
   // Hero at 512px: the panel shows ~440px. The 160px art is already fetched
-  // for the backdrop/tint and renders instantly as a progressive placeholder
-  // until the hero arrives, then BloomArt swaps it in (replaying the bloom).
+  // for the backdrop/tint and renders instantly as the blurred ThumbHash
+  // placeholder until the hero fades in over it.
   const { url: heroArt } = useCachedArt(t ? (art?.trackArt(t, 512) ?? null) : null);
   const { url: bgArt } = useCachedArt(t ? (art?.trackArt(t, 160) ?? null) : null);
 
@@ -515,7 +554,7 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
     </div>
   ) : heroArt || bgArt ? (
     <div className="relative h-full w-full overflow-hidden">
-      <BloomArt src={heroArt ?? bgArt} alt={t.album || t.name} />
+      <ThumbHashHero lowSrc={bgArt} highSrc={heroArt} alt={t.album || t.name} />
     </div>
   ) : (
     <div className="flex h-full w-full items-center justify-center bg-zinc-900">

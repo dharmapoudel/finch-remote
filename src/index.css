@@ -195,10 +195,10 @@ button {
   --animate-iris: fx-iris 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-view-enter: fx-view-enter 300ms cubic-bezier(0.22, 1, 0.36, 1)
     backwards;
+  --animate-hero-in: fx-hero-in 600ms ease-out both;
 
   /* one-shot 480ms track-change bloom: settle-in overshoot + brightness lift */
-  @keyframes fx-bloom {
-    0% {
+  @keyframes fx-bloom {    0% {
       transform: scale(0.92);
       filter: brightness(1.25);
     }
@@ -209,6 +209,17 @@ button {
     100% {
       transform: scale(1);
       filter: brightness(1);
+    }
+  }
+
+  /* ThumbHash hero reveal: the sharp art fades up over the blurred
+     placeholder — no scale punch, no brightness flash. */
+  @keyframes fx-hero-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
     }
   }
 
