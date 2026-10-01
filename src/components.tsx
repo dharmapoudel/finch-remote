@@ -301,6 +301,10 @@ async function loadArt(
   priority: 'front' | 'back' = 'front',
   shouldSkip?: () => boolean,
 ): Promise<string | null> {
+  // Blur-signature data URLs are fully local pixels — no tiers, no network.
+  // This lets useCachedArt / AmbientArt / useArtAccent consume a cached
+  // signature transparently as a placeholder src.
+  if (url.startsWith('data:')) return url;
   const hit = artObjects.get(url);
   if (hit) {
     rememberArt(url, hit); // refresh LRU order
@@ -357,6 +361,21 @@ export function warmArt(srcs: (string | null | undefined)[], limit = 48): void {
 
 export function cancelWarmArt(): void {
   warmGen++;
+}
+
+// Proactive blur-signature warming for a tab's first open: enqueue the small
+// art of the first N visible items at back priority. Each download stashes a
+// 16x16 blur signature as a side effect, so later Now Playing placeholders
+// and Detail backdrops paint instantly from the cache. Runs once per tab per
+// session; warmArt dedups against in-flight and completed loads, so the
+// tiles' own front-priority fetches are never duplicated.
+const warmedTabs = new Set<string>();
+export function warmTabSigs(tab: string, srcs: (string | null | undefined)[], n = 12): void {
+  if (warmedTabs.has(tab)) return;
+  const list = srcs.filter((s): s is string => !!s).slice(0, n);
+  if (!list.length) return; // data not loaded yet — the effect re-runs on load
+  warmedTabs.add(tab);
+  warmArt(list, n);
 }
 
 export function useCachedArt(

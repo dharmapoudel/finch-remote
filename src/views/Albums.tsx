@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { albumActions } from '../actions';
-import { Empty, GridCard, publishAmbient, Rail, Tile, TopBar, useArt, useArtAccent } from '../components';
+import { Empty, GridCard, publishAmbient, Rail, Tile, TopBar, useArt, useArtAccent, warmTabSigs } from '../components';
 import { type Album, type Track } from '../jellyfin';
 import type { ViewProps } from '../nav';
 import {
@@ -68,6 +68,12 @@ export default function AlbumsHome({ jf, nav, openMenu }: ViewProps) {
   useEffect(() => {
     publishAmbient(ambientSrc, accent);
   }, [ambientSrc, accent]);
+
+  // Tab-open signature warming for the visible albums (see warmTabSigs).
+  useEffect(() => {
+    if (!art) return;
+    warmTabSigs('albums', [...(favs.data ?? []), ...(recentAlbums ?? []), ...(albums.data ?? [])].map(a => art.albumArt(a)));
+  }, [art, favs.data, recentAlbums, albums.data]);
 
   const albumTile = (a: Album) => (
     <Tile

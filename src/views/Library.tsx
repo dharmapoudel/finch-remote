@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { GridCard, publishAmbient, Rail, Tile, TopBar, Spinner, useArt, useArtAccent } from '../components';
+import { GridCard, publishAmbient, Rail, Tile, TopBar, Spinner, useArt, useArtAccent, warmTabSigs } from '../components';
 import { player } from '../player';
 import { type Artist, type Genre } from '../jellyfin';
 import type { JellyfinClient } from '../jellyfin';
@@ -58,6 +58,12 @@ export default function Library({ jf, nav, openMenu }: ViewProps) {
   useEffect(() => {
     publishAmbient(ambientSrc, accent);
   }, [ambientSrc, accent]);
+
+  // Tab-open signature warming for the visible artists (see warmTabSigs).
+  useEffect(() => {
+    if (!art) return;
+    warmTabSigs('library', (artists.data ?? []).map(a => art.artistArt(a)));
+  }, [art, artists.data]);
 
   return (
     <div className="flex h-full flex-col">

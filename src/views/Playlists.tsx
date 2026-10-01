@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { playlistActions } from '../actions';
-import { Empty, GridCard, publishAmbient, Rail, Tile, TopBar, useArt, useArtAccent } from '../components';
+import { Empty, GridCard, publishAmbient, Rail, Tile, TopBar, useArt, useArtAccent, warmTabSigs } from '../components';
 import { type Playlist } from '../jellyfin';
 import type { ViewProps } from '../nav';
 import { getRecentPlaylists, type RecentPlaylist } from '../recent';
@@ -40,6 +40,12 @@ export default function PlaylistsHome({ jf, nav, openMenu }: ViewProps) {
   useEffect(() => {
     publishAmbient(ambientSrc, accent);
   }, [ambientSrc, accent]);
+
+  // Tab-open signature warming for the visible playlists (see warmTabSigs).
+  useEffect(() => {
+    if (!art) return;
+    warmTabSigs('playlists', [...(favs.data ?? []), ...(all.data ?? [])].map(p => art.playlistArt(p)));
+  }, [art, favs.data, all.data]);
 
   const retryAll = () => {
     favs.retry();

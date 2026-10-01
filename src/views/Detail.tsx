@@ -12,8 +12,10 @@ import {
   TrackRow,
   friendlyError,
   publishAmbient,
+  readBlurSig,
   useArt,
   useArtAccent,
+  useCachedArt,
   useLinkGen,
   usePortrait,
 } from '../components';
@@ -182,7 +184,34 @@ export default function Detail({ jf, nav, openMenu, params }: ViewProps & { para
   // Header art: the first track's art carries the album/playlist cover for
   // every kind. The accent color is sampled from it.
   const headerArt = tracks?.[0] ? (art?.trackArt(tracks[0], 512) ?? null) : null;
-  const accent = useArtAccent(headerArt);
+  // Instant backdrop: the cached 16x16 blur signature for the header art's
+  // item paints immediately (one local kv lookup, zero network) while the
+  // 512px downloads; AmbientArt's existing crossfade swaps in the sharp art
+  // when it arrives. The signature is keyed by the same item id the art URL
+  // carries (track id or album id), so tab-open warming covers this lookup.
+  const [sigUrl, setSigUrl] = useState<string | null>(null);
+  useEffect(() => {
+    setSigUrl(null);
+    const t = tracks?.[0];
+    if (!t) return;
+    let dead = false;
+    void readBlurSig([t.id, t.albumId]).then(u => {
+      if (!dead) setSigUrl(u);
+    });
+    return () => {
+      dead = true;
+    };
+  }, [params.id, tracks]);
+  // HQ readiness: the signature only stands in until the 512px bytes are in
+  // hand (memory, persistent, or network). A bare `sigUrl ?? headerArt`
+  // would let the cached signature shadow the sharp art forever.
+  const hqReady = useCachedArt(headerArt).url != null;
+  const artSrc = hqReady ? headerArt : (sigUrl ?? headerArt);
+  // Both accent hooks run unconditionally: `??` on the calls themselves
+  // would short-circuit and change the hook count between renders.
+  const hqAccent = useArtAccent(headerArt);
+  const sigAccent = useArtAccent(sigUrl);
+  const accent = hqAccent ?? sigAccent;
   // Publish to the single app-level tab-strip backdrop so the tab bar
   // background extends the album/playlist art. Waits for the accent color
   // so the backdrop updates atomically — publishing art without the accent
@@ -190,8 +219,8 @@ export default function Detail({ jf, nav, openMenu, params }: ViewProps & { para
   // (publishAmbient ignores nulls, so a loading detail never blanks the
   // previous view's art.)
   useEffect(() => {
-    if (headerArt && accent) publishAmbient(headerArt, accent);
-  }, [headerArt, accent]);
+    if (artSrc && accent) publishAmbient(artSrc, accent);
+  }, [artSrc, accent]);
   // Portrait gives the hero far less room: shrink it so the track list
   // starts near the top instead of below the fold.
   const portrait = usePortrait();
@@ -199,7 +228,7 @@ export default function Detail({ jf, nav, openMenu, params }: ViewProps & { para
   return (
     <div className="flex h-full flex-col">
       <div className="relative min-h-0 flex-1 overflow-y-auto">
-        <AmbientArt src={headerArt} accent={accent} height={portrait ? 160 : 300} softBottom />
+        <AmbientArt src={artSrc} accent={accent} height={portrait ? 160 : 300} softBottom />
         <div className="relative px-5 py-5">
           {error ? (
             <Empty text={`Could not load: ${error}`} onRetry={() => setRetryKey(k => k + 1)} />

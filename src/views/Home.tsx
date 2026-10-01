@@ -14,6 +14,7 @@ import {
   useArt,
   useArtAccent,
   usePlayer,
+  warmTabSigs,
   type MenuAction,
 } from '../components';
 import { player } from '../player';
@@ -114,9 +115,20 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
     publishAmbient(ambientSrc, accent);
   }, [ambientSrc, accent]);
 
-  // No artwork prefetch on Home mount: the rails' JSON is in flight at the
-  // same moment, and the combined burst was dropping the Bluetooth link.
-  // Visible tiles load on demand via the IntersectionObserver loader.
+  // Tab-open signature warming: once the rails' JSON has landed, enqueue the
+  // visible items' small art at back priority so their 16x16 blur signatures
+  // get cached for instant Now Playing placeholders and Detail backdrops.
+  // (The old no-prefetch rule was about the mount-time burst colliding with
+  // the rails' JSON in flight; this waits for the JSON first and rides the
+  // serial art lane at back priority, so the link never sees a burst.)
+  useEffect(() => {
+    if (!art) return;
+    warmTabSigs('home', [
+      ...(recent.data ?? []).map(t => art.trackArt(t)),
+      ...(favs.data ?? []).map(t => art.trackArt(t)),
+      ...(added.data ?? []).map(a => art.albumArt(a)),
+    ]);
+  }, [art, recent.data, favs.data, added.data]);
 
   const menuFor = (t: Track): MenuAction[] => trackActions(t, jf, nav);
 

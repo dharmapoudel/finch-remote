@@ -12,6 +12,7 @@ import {
   useArt,
   useLinkGen,
   usePlayer,
+  warmTabSigs,
   type MenuAction,
 } from '../components';
 import { isAuthError, type Track } from '../jellyfin';
@@ -56,6 +57,12 @@ export default function RecentTracks({ jf, nav, back, openMenu }: ViewProps) {
     if (linkGen > 0 && error) setRetryKey(k => k + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkGen]);
+
+  // Tab-open signature warming for the visible tracks (see warmTabSigs).
+  useEffect(() => {
+    if (!art) return;
+    warmTabSigs('recenttracks', (tracks ?? []).map(t => art.trackArt(t)));
+  }, [art, tracks]);
 
   const menuFor = (t: Track): MenuAction[] => trackActions(t, jf, nav);
 
