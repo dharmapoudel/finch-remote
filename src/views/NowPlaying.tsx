@@ -275,8 +275,9 @@ function InfoPanel({
               </button>
             </div>
 
-            {/* titles vertically centered between the via row and the seekbar */}
-            <div className="flex min-h-0 flex-1 flex-col justify-center">
+            {/* titles vertically centered between the via row and the seekbar;
+                flex-[1.65] gives a 3-line title room without touching the via row */}
+            <div className="flex min-h-0 flex-[1.65] flex-col justify-center">
               <div className="min-w-0 shrink-0">
               <div
                 className={`line-clamp-3 font-display font-semibold leading-[1.2] tracking-display text-[#efefef] ${
@@ -297,7 +298,7 @@ function InfoPanel({
             </div>
             {/* prev/play/next centered in the empty area between the seek
                 bar and the bottom lyrics/heart row, nudged down ~15px */}
-            <div className="flex min-h-0 flex-[2] items-center justify-center pt-[30px]">
+            <div className="flex min-h-0 flex-[1] items-center justify-center pt-[30px]">
               <div className={`flex items-center ${small ? 'gap-12' : 'gap-10'}`}>
               <Ghost label="Previous" onClick={() => void player.prev()}>
                 <TransportGlyph
