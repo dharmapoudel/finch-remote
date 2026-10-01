@@ -270,8 +270,15 @@ async function fetchArtNetwork(url: string): Promise<string | null> {
       return raced;
     }
     try {
-      const obj = URL.createObjectURL(new Blob([b64ToBytes(saved)], { type: 'image/jpeg' }));
+      const bytes = b64ToBytes(saved);
+      const obj = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
       rememberArt(url, obj);
+      // The bytes are in hand: (re)stash the blur signature even on a
+      // persistent hit. Without this, a session that serves its art from
+      // the persistent tier never populates signatures, and detail
+      // backdrops/headers stay flat/placeholder despite warm art.
+      const m = /\/Items\/([^/?#]+)\//.exec(url);
+      if (m) stashBlurSig(m[1], bytes);
       return obj;
     } catch {
       // corrupt entry: fall through to the network

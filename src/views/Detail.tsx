@@ -253,7 +253,7 @@ export default function Detail({ jf, nav, openMenu, params }: ViewProps & { para
                 <div className={`flex gap-5 ${portrait ? 'mb-4 items-center gap-4' : 'mb-6 items-end'}`}>
                   <div className="shrink-0 shadow-2xl shadow-black/60">
                     <Artwork
-                      src={headerArt}
+                      src={artSrc}
                       size={portrait ? 96 : 160}
                       rounded="rounded-3xl"
                       label={params.title}
