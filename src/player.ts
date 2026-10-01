@@ -645,6 +645,12 @@ export class PlaybackEngine {
           this.error = null;
           this.emit();
         }
+      } else {
+        // No local queue to advance (Finamp owns it): show the switch
+        // immediately instead of sitting on the old track. The poll below
+        // fills in the real track and clears the spinner.
+        this.loading = true;
+        this.emit();
       }
       this.remoteCommand('NextTrack');
       // Keep polling until the client's track actually switches; a single
@@ -701,6 +707,11 @@ export class PlaybackEngine {
             this.error = null;
             this.emit();
           }
+        } else {
+          // No local queue to step back (Finamp owns it): show the switch
+          // immediately instead of sitting on the old track.
+          this.loading = true;
+          this.emit();
         }
         this.remoteCommand('PreviousTrack');
         this.awaitRemoteTrackSwitch(oldId);
@@ -1089,7 +1100,14 @@ export class PlaybackEngine {
     const gen = ++this.trackSwitchGen;
     let attempts = 0;
     const tick = async (): Promise<void> => {
-      if (!this.remoteActive || gen !== this.trackSwitchGen || attempts >= 3) return;
+      if (!this.remoteActive || gen !== this.trackSwitchGen) return;
+      if (attempts >= 3) {
+        // Gave up waiting: the switch didn't land (or landed on the same
+        // track). Clear the spinner so we're not stuck on it.
+        this.loading = false;
+        this.emit();
+        return;
+      }
       attempts++;
       await this.pollRemote();
       if (gen !== this.trackSwitchGen) return;
