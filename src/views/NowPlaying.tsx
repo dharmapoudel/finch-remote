@@ -576,9 +576,9 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
 
   const artPanel = showLyrics ? (
     <div className="relative h-full w-full overflow-hidden bg-[#14161c]">
-      {bgArt ? (
+      {bgArt ?? sigUrl ? (
         <img
-          src={bgArt}
+          src={(bgArt ?? sigUrl)!}
           alt=""
           aria-hidden="true"
           draggable={false}
