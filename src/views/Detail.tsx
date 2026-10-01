@@ -28,6 +28,10 @@ interface DetailParams {
   kind: 'album' | 'artist' | 'playlist' | 'genre';
   id: string;
   title: string;
+  // The container's own image tag, passed by the tapping view when it has
+  // the item in hand. Lets the header reuse the art the tile showed — the
+  // tab already warmed it — instead of cold-fetching the first track's.
+  imageTag?: string | null;
 }
 
 interface StickyDetail {
@@ -181,21 +185,28 @@ export default function Detail({ jf, nav, openMenu, params }: ViewProps & { para
     );
   };
 
-  // Header art: the first track's art carries the album/playlist cover for
-  // every kind. The accent color is sampled from it.
-  const headerArt = tracks?.[0] ? (art?.trackArt(tracks[0], 512) ?? null) : null;
+  // Header art: the container's own image when the tap carried its tag —
+  // it's the art the tile showed and the tab already warmed (the 160px and
+  // the 16x16 signature), so the backdrop paints instantly while the 512px
+  // downloads. Without it, fall back to the first track's art.
+  const ownArt =
+    params.imageTag && (params.kind === 'playlist' || params.kind === 'artist')
+      ? jf.imageUrl(params.id, 512)
+      : null;
+  const headerArt = ownArt ?? (tracks?.[0] ? (art?.trackArt(tracks[0], 512) ?? null) : null);
   // Instant backdrop: the cached 16x16 blur signature for the header art's
   // item paints immediately (one local kv lookup, zero network) while the
   // 512px downloads; AmbientArt's existing crossfade swaps in the sharp art
-  // when it arrives. The signature is keyed by the same item id the art URL
-  // carries (track id or album id), so tab-open warming covers this lookup.
+  // when it arrives. The container id leads the lookup so the tab-open
+  // warming (which cached the tile's own art) covers this screen.
   const [sigUrl, setSigUrl] = useState<string | null>(null);
   useEffect(() => {
     setSigUrl(null);
-    const t = tracks?.[0];
-    if (!t) return;
     let dead = false;
-    void readBlurSig([t.id, t.albumId]).then(u => {
+    // The container id is known on mount; the track ids arrive with the
+    // list. Two passes so a warmed container paints before tracks load.
+    const t = tracks?.[0];
+    void readBlurSig([params.id, t?.id, t?.albumId]).then(u => {
       if (!dead) setSigUrl(u);
     });
     return () => {

@@ -95,7 +95,7 @@ export default function Library({ jf, nav, openMenu }: ViewProps) {
                     size={140}
                     title={a.name}
                     art={art?.artistArt(a) ?? null}
-                    onClick={() => nav({ name: 'detail', kind: 'artist', id: a.id, title: a.name })}
+                    onClick={() => nav({ name: 'detail', kind: 'artist', id: a.id, title: a.name, imageTag: a.imageTag })}
                     onMenu={() => artistMenu(jf, nav, openMenu, a)}
                   />
                 ))}
@@ -154,7 +154,7 @@ export function ArtistsAll({ jf, nav, back, openMenu }: ViewProps) {
                   key={a.id}
                   title={a.name}
                   art={art?.artistArt(a) ?? null}
-                  onClick={() => nav({ name: 'detail', kind: 'artist', id: a.id, title: a.name })}
+                  onClick={() => nav({ name: 'detail', kind: 'artist', id: a.id, title: a.name, imageTag: a.imageTag })}
                   onMenu={() => artistMenu(jf, nav, openMenu, a)}
                 />
               ))}

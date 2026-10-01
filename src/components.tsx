@@ -101,7 +101,10 @@ export async function clearArtCache(): Promise<void> {
 // ---- persistent art tier (daemon store, survives restarts) ----
 const PART_PREFIX = 'finch:art:';
 const PART_INDEX = 'finch:art:index';
-const PART_MAX = 48;
+// 96 slots ≈ 1.4MB: enough for a real library's tab tiles (Home + Playlists
+// + Albums + Library ≈ 60-85 unique) so reopening finds them warm. Was 48,
+// which a single playlist scroll (30 track arts) could evict.
+const PART_MAX = 96;
 
 function hashUrl(url: string): string {
   let h = 5381;
@@ -135,7 +138,11 @@ async function persistRead(key: string): Promise<string | null> {
 }
 
 // Write-through, fire-and-forget: a full/failed store must never break art.
+// Large heroes (512px detail art, ~40-80KB) are NOT persisted: they'd eat
+// the tile budget 3-5x faster, and detail headers already paint instantly
+// from their blur signature while the hero refetches.
 function persistWriteArt(url: string, bytes: Uint8Array): void {
+  if (bytes.length > 32 * 1024) return;
   void (async () => {
     try {
       const key = PART_PREFIX + hashUrl(url);

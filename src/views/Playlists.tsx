@@ -60,7 +60,7 @@ export default function PlaylistsHome({ jf, nav, openMenu }: ViewProps) {
       title={p.name}
       subtitle={p.songCount ? `${p.songCount} tracks` : undefined}
       art={art?.playlistArt(p) ?? null}
-      onClick={() => nav({ name: 'detail', kind: 'playlist', id: p.id, title: p.name })}
+      onClick={() => nav({ name: 'detail', kind: 'playlist', id: p.id, title: p.name, imageTag: p.imageTag })}
       onMenu={() => openMenu(p.name, playlistActions(p, jf, nav))}
     />
   );
@@ -138,7 +138,7 @@ function PlaylistGridCard({
       title={p.name}
       subtitle={p.songCount ? `${p.songCount} tracks` : undefined}
       art={art?.playlistArt(p) ?? null}
-      onClick={() => nav({ name: 'detail', kind: 'playlist', id: p.id, title: p.name })}
+      onClick={() => nav({ name: 'detail', kind: 'playlist', id: p.id, title: p.name, imageTag: p.imageTag })}
       onMenu={() => openMenu(p.name, playlistActions(p, jf, nav))}
     />
   );
