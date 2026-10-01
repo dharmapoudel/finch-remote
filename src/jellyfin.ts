@@ -626,6 +626,16 @@ export class JellyfinClient {
     return this.request<RawSession[]>('GET', '/Sessions', { ControllableByUserId: this.creds.userId });
   }
 
+  /** One session only — far smaller than the full /Sessions list, so the
+   *  track-switch polls fly through the Bluetooth tunnel faster. */
+  async rawSession(sessionId: string): Promise<RawSession | null> {
+    try {
+      return await this.request<RawSession>('GET', `/Sessions/${encodeURIComponent(sessionId)}`, {});
+    } catch {
+      return null;
+    }
+  }
+
   // PlaystateCommand for one session: Pause/Unpause/NextTrack/
   // PreviousTrack/Seek (with SeekPositionTicks)/Stop.
   async remotePlaystate(sessionId: string, command: string, body: Record<string, unknown>): Promise<void> {

@@ -81,6 +81,21 @@ export class RemoteControl {
     };
   }
 
+  /** Lighter state check for the track-switch polls: fetches just this
+   *  session instead of the full list. */
+  async stateOne(sessionId: string): Promise<RemoteState | null> {
+    const s = await this.jf.rawSession(sessionId);
+    if (!s) return null;
+    const item = s.NowPlayingItem;
+    return {
+      track: item ? normalizeRemoteTrack(item) : null,
+      positionMs: Math.round((s.PlayState?.PositionTicks ?? 0) / 10_000),
+      paused: s.PlayState?.IsPaused ?? true,
+      client: s.Client || 'Player',
+      deviceName: s.DeviceName || 'Phone',
+    };
+  }
+
   command(sessionId: string, cmd: RemoteCommand, seekMs?: number): Promise<void> {
     const body: Record<string, unknown> = { Command: cmd };
     if (cmd === 'Seek' && seekMs !== undefined) body.SeekPositionTicks = Math.round(seekMs * 10_000);

@@ -1101,25 +1101,52 @@ export class PlaybackEngine {
     let attempts = 0;
     const tick = async (): Promise<void> => {
       if (!this.remoteActive || gen !== this.trackSwitchGen) return;
-      if (attempts >= 3) {
+      if (attempts >= 2) {
         // Gave up waiting: the switch didn't land (or landed on the same
-        // track). Clear the spinner so we're not stuck on it.
+        // track). Clear the spinner so we're not stuck on it; the 15s
+        // background poll will catch the switch when it does land.
         this.loading = false;
         this.emit();
         return;
       }
       attempts++;
-      await this.pollRemote();
-      if (gen !== this.trackSwitchGen) return;
-      const cur = this.current();
+      // Light check: single-session fetch, not the full /Sessions list.
+      // Half the Bluetooth traffic of the old 4-poll burst.
+      let st: RemoteState | null = null;
+      try {
+        const sid = this.remoteSessionId;
+        if (this.jf && sid) st = await new RemoteControl(this.jf).stateOne(sid);
+      } catch {
+        // Transport failure — try once more, then give up quietly.
+      }
+      if (gen !== this.trackSwitchGen || !this.remoteActive) return;
+      if (st?.track) {
+        this.loading = false;
+        const cur = this.current();
+        if (!cur || cur.id !== st.track.id) {
+          const qi = this.queue.findIndex(t => t.id === st.track!.id);
+          if (qi >= 0) this.index = qi;
+          else {
+            this.queue = [st.track];
+            this.index = 0;
+          }
+          this.durationMs = st.track.durationMs;
+          this.positionMs = st.positionMs;
+          this.positionAt = Date.now();
+          this.intentPlaying = !st.paused;
+          this.error = null;
+          this.emit();
+          return; // Track switched — done.
+        }
+        // Same track: keep waiting.
+        this.emit();
+      }
       // Track changed (or nothing to compare against) — the mirror is
       // current, stop polling.
-      if (!oldTrackId || (cur && cur.id !== oldTrackId)) return;
-      // Tight 500ms spacing in the first 2s: the switch usually lands
-      // 800-1500ms after the tap (Bluetooth + network + Finamp decode).
-      window.setTimeout(tick, 500);
+      if (!oldTrackId) return;
+      window.setTimeout(tick, 800);
     };
-    window.setTimeout(tick, 700);
+    window.setTimeout(tick, 800);
   }
 
   private async pollRemote(): Promise<void> {
