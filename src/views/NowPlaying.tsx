@@ -338,7 +338,7 @@ function InfoPanel({
               where they were; only the prev/play/next cluster moved up.
               The Ghost's -m-3 negative margin pulls the 24px icons to the
               row's edge (margin -12 + padding 12 = icon at x=0). */}
-          <div className="flex w-full shrink-0 items-center justify-between">
+          <div className="mb-[15px] flex w-full shrink-0 items-center justify-between">
               {lyricsSupported !== false ? (
                 <Ghost
                   label={
