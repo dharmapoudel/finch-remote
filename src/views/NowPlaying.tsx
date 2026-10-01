@@ -275,7 +275,10 @@ function InfoPanel({
               </button>
             </div>
 
-            <div className="mt-4 min-w-0 shrink-0">
+            {/* fixed height so the seek bar below never shifts with
+                short vs. long track/artist names (title clamps at 3 lines,
+                artist at 2) */}
+            <div className="mt-4 min-h-[186px] min-w-0 shrink-0">
               <div
                 className={`line-clamp-3 font-display font-semibold leading-[1.2] tracking-display text-[#efefef] ${
                   small ? 'text-[1.75rem]' : 'text-[1.875rem]'
