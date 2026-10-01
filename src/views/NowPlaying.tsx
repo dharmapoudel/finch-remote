@@ -269,16 +269,15 @@ function InfoPanel({
                 type="button"
                 aria-label="Choose playback device"
                 onClick={onOpenRemote}
-                className="rounded-full border border-white/15 px-4 py-2 text-lg text-white/65 active:bg-white/10"
+                className="rounded-full border border-white/15 px-3 py-1.5 text-sm text-white/65 active:bg-white/10"
               >
                 {player.remoteActive ? `via ${player.remoteClient}` : 'This device'}
               </button>
             </div>
 
-            {/* fixed height so the seek bar below never shifts with
-                short vs. long track/artist names (title clamps at 3 lines,
-                artist at 2) */}
-            <div className="mt-4 min-h-[186px] min-w-0 shrink-0">
+            {/* titles vertically centered between the via row and the seekbar */}
+            <div className="flex min-h-0 flex-1 flex-col justify-center">
+              <div className="min-w-0 shrink-0">
               <div
                 className={`line-clamp-3 font-display font-semibold leading-[1.2] tracking-display text-[#efefef] ${
                   small ? 'text-[1.75rem]' : 'text-[1.875rem]'
@@ -290,18 +289,15 @@ function InfoPanel({
               {player.remoteActive ? (
                 <div className="mt-1 text-[1.05rem] text-leaf">Playing on {player.remoteDevice}</div>
               ) : null}
+              </div>
             </div>
 
-            {/* weighted spacers: the seek bar sits ~60% down the panel,
-                aligned with the lyrics' middle lines, instead of hugging
-                the transport row */}
-            <div className="min-h-0 flex-1" aria-hidden="true" />
             <div className="shrink-0">
               <ProgressBar onSeek={ms => void player.seekTo(ms)} />
             </div>
             {/* prev/play/next centered in the empty area between the seek
-                bar and the bottom lyrics/heart row */}
-            <div className="flex min-h-0 flex-[2] items-center justify-center">
+                bar and the bottom lyrics/heart row, nudged down ~15px */}
+            <div className="flex min-h-0 flex-[2] items-center justify-center pt-[30px]">
               <div className={`flex items-center ${small ? 'gap-12' : 'gap-10'}`}>
               <Ghost label="Previous" onClick={() => void player.prev()}>
                 <TransportGlyph
