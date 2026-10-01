@@ -1081,20 +1081,25 @@ export class PlaybackEngine {
   // switch (command -> phone -> client swaps track -> server session
   // updates). The single 300ms pollRemoteSoon usually fires before the
   // switch lands, leaving the UI parked on the old song until the next
-  // 15s tick. Poll with backoff until the track actually changes.
+  // 15s tick. Poll gently until the track actually changes — few polls,
+  // spaced out, so we don't saturate the phone's Bluetooth-tethered link.
+  // A new skip cancels the previous wait via the generation counter.
+  private trackSwitchGen = 0;
   private awaitRemoteTrackSwitch(oldTrackId: string | null): void {
+    const gen = ++this.trackSwitchGen;
     let attempts = 0;
     const tick = async (): Promise<void> => {
-      if (!this.remoteActive || attempts >= 6) return;
+      if (!this.remoteActive || gen !== this.trackSwitchGen || attempts >= 3) return;
       attempts++;
       await this.pollRemote();
+      if (gen !== this.trackSwitchGen) return;
       const cur = this.current();
       // Track changed (or nothing to compare against) — the mirror is
       // current, stop polling.
       if (!oldTrackId || (cur && cur.id !== oldTrackId)) return;
-      window.setTimeout(tick, attempts < 2 ? 800 : 1500);
+      window.setTimeout(tick, attempts === 1 ? 1500 : 3000);
     };
-    window.setTimeout(tick, 700);
+    window.setTimeout(tick, 1200);
   }
 
   private async pollRemote(): Promise<void> {

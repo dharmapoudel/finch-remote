@@ -295,8 +295,8 @@ function InfoPanel({
             </div>
 
             <div className="min-h-0 flex-1" aria-hidden="true" />
-            {/* seekbar centered where the controls bar used to sit */}
-            <div className="flex min-h-0 flex-[2] flex-col justify-center">
+            {/* seekbar centered where the controls bar used to sit, nudged down 20px */}
+            <div className="flex min-h-0 flex-[2] flex-col justify-center pt-[40px]">
               <div className="shrink-0">
                 <ProgressBar onSeek={ms => void player.seekTo(ms)} />
               </div>
