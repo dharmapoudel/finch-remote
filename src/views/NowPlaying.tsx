@@ -262,7 +262,7 @@ function InfoPanel({
       <div className="relative flex min-h-0 flex-1 flex-col px-5 py-4">
         <div className="flex min-h-0 flex-1 flex-col gap-5">
           {/* the track takes the space above; the controls hold the bottom edge whatever is left */}
-          <div className="flex min-h-0 flex-1 flex-col justify-between gap-4 py-1">
+          <div className="flex min-h-0 flex-1 flex-col py-1">
             <div className="flex shrink-0 items-center justify-between">
               <Clock />
               <button
@@ -275,7 +275,7 @@ function InfoPanel({
               </button>
             </div>
 
-            <div className="min-w-0 shrink-0">
+            <div className="mt-4 min-w-0 shrink-0">
               <div
                 className={`line-clamp-3 font-display font-semibold leading-[1.2] tracking-display text-[#efefef] ${
                   small ? 'text-[1.75rem]' : 'text-[1.875rem]'
@@ -289,9 +289,14 @@ function InfoPanel({
               ) : null}
             </div>
 
+            {/* weighted spacers: the seek bar sits ~60% down the panel,
+                aligned with the lyrics' middle lines, instead of hugging
+                the transport row */}
+            <div className="min-h-0 flex-1" aria-hidden="true" />
             <div className="shrink-0">
               <ProgressBar onSeek={ms => void player.seekTo(ms)} />
             </div>
+            <div className="min-h-0 flex-[2]" aria-hidden="true" />
           </div>
 
           {/* o-music transport: bare glyphs, no circles; play/pause takes the
