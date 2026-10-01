@@ -276,8 +276,9 @@ function InfoPanel({
             </div>
 
             {/* titles block: fixed 202px so the seekbar below NEVER moves
-                (same position as 1.1.29); titles vertically centered inside */}
-            <div className="flex h-[202px] shrink-0 flex-col justify-center">
+                (same position as 1.1.29); titles vertically centered inside,
+                nudged slightly down */}
+            <div className="flex h-[202px] shrink-0 flex-col justify-center pt-[24px]">
               <div className="min-w-0 shrink-0">
               <div
                 className={`line-clamp-3 font-display font-semibold leading-[1.2] tracking-display text-[#efefef] ${
@@ -294,10 +295,12 @@ function InfoPanel({
             </div>
 
             <div className="min-h-0 flex-1" aria-hidden="true" />
-            <div className="shrink-0">
-              <ProgressBar onSeek={ms => void player.seekTo(ms)} />
+            {/* seekbar centered where the controls bar used to sit */}
+            <div className="flex min-h-0 flex-[2] flex-col justify-center">
+              <div className="shrink-0">
+                <ProgressBar onSeek={ms => void player.seekTo(ms)} />
+              </div>
             </div>
-            <div className="min-h-0 flex-[2]" aria-hidden="true" />
           </div>
 
           {/* bottom row: lyrics, prev/play/next, heart — all in one row */}
@@ -324,7 +327,7 @@ function InfoPanel({
               <Ghost label="Previous" onClick={() => void player.prev()}>
                 <TransportGlyph
                   name="skip"
-                  className={small ? 'h-9 w-9 -scale-x-100' : 'h-8 w-8 -scale-x-100'}
+                  className={small ? 'h-8 w-8 -scale-x-100' : 'h-7 w-7 -scale-x-100'}
                 />
               </Ghost>
               <Ghost
@@ -334,7 +337,7 @@ function InfoPanel({
                 focusDefault
               >
                 {player.loading ? (
-                  <span className="block h-10 w-10 animate-spin rounded-full border-4 border-white/15 border-t-white/85" />
+                  <span className="block h-9 w-9 animate-spin rounded-full border-4 border-white/15 border-t-white/85" />
                 ) : (
                   <span
                     key={player.intentPlaying ? 'pause' : 'play'}
@@ -342,13 +345,13 @@ function InfoPanel({
                   >
                     <TransportGlyph
                       name={player.intentPlaying ? 'pause' : 'play'}
-                      className={small ? 'h-10 w-10' : 'h-9 w-9'}
+                      className={small ? 'h-9 w-9' : 'h-8 w-8'}
                     />
                   </span>
                 )}
               </Ghost>
               <Ghost label="Next" onClick={() => void player.next()}>
-                <TransportGlyph name="skip" className={small ? 'h-9 w-9' : 'h-8 w-8'} />
+                <TransportGlyph name="skip" className={small ? 'h-8 w-8' : 'h-7 w-7'} />
               </Ghost>
               <Ghost
                 label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
