@@ -1115,9 +1115,11 @@ export class PlaybackEngine {
       // Track changed (or nothing to compare against) — the mirror is
       // current, stop polling.
       if (!oldTrackId || (cur && cur.id !== oldTrackId)) return;
-      window.setTimeout(tick, attempts === 1 ? 1500 : 3000);
+      // Tight 500ms spacing in the first 2s: the switch usually lands
+      // 800-1500ms after the tap (Bluetooth + network + Finamp decode).
+      window.setTimeout(tick, 500);
     };
-    window.setTimeout(tick, 1200);
+    window.setTimeout(tick, 700);
   }
 
   private async pollRemote(): Promise<void> {
