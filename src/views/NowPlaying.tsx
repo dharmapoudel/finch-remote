@@ -299,40 +299,9 @@ function InfoPanel({
             <div className="shrink-0">
               <ProgressBar onSeek={ms => void player.seekTo(ms)} />
             </div>
-            <div className="min-h-0 flex-[2]" aria-hidden="true" />
-          </div>
-
-          {/* o-music transport: bare glyphs, no circles; play/pause takes the
-              cover's accent color, skips stay off-white. Lyrics and heart sit
-              at the row's extremes, their icons lined up exactly with the seek
-              bar's ends: the Ghost's -m-3 negative margin pulls the 24px icon
-              to the row's edge (margin -12 + padding 12 = icon at x=0); no
-              positive margin, which would inset it. Prev/play/next stay
-              centered between them, untouched.
-              Inactive icons are translucent, the active state is solid green. */}
-          <div className="flex w-full shrink-0 items-center justify-between">
-              {lyricsSupported !== false ? (
-                <Ghost
-                  label={
-                    hasLyrics
-                      ? lyricsVisible
-                        ? 'Hide lyrics'
-                        : 'Show lyrics'
-                      : 'No lyrics for this track'
-                  }
-                  disabled={!hasLyrics}
-                  onClick={onToggleLyrics}
-                  tint={lyricsVisible ? '#34d399' : undefined}
-                  className={lyricsVisible ? '' : 'opacity-40'}
-                >
-                  <Icon name="lyrics" size={24} />
-                </Ghost>
-              ) : (
-                // Old servers (< 10.9) hide the lyrics toggle entirely; keep a
-                // same-size spacer (the lyrics Ghost's 24px margin box) so
-                // prev/play/next stay centered.
-                <div className="w-6 shrink-0" aria-hidden="true" />
-              )}
+            {/* prev/play/next centered in the empty area between the seek
+                bar and the bottom lyrics/heart row */}
+            <div className="flex min-h-0 flex-[2] items-center justify-center">
               <div className={`flex items-center ${small ? 'gap-12' : 'gap-10'}`}>
               <Ghost label="Previous" onClick={() => void player.prev()}>
                 <TransportGlyph
@@ -364,6 +333,33 @@ function InfoPanel({
                 <TransportGlyph name="skip" className={small ? 'h-9 w-9' : 'h-8 w-8'} />
               </Ghost>
               </div>
+            </div>
+          </div>
+
+          {/* bottom row: lyrics and heart stay at the extremes, exactly
+              where they were; only the prev/play/next cluster moved up.
+              The Ghost's -m-3 negative margin pulls the 24px icons to the
+              row's edge (margin -12 + padding 12 = icon at x=0). */}
+          <div className="flex w-full shrink-0 items-center justify-between">
+              {lyricsSupported !== false ? (
+                <Ghost
+                  label={
+                    hasLyrics
+                      ? lyricsVisible
+                        ? 'Hide lyrics'
+                        : 'Show lyrics'
+                      : 'No lyrics for this track'
+                  }
+                  disabled={!hasLyrics}
+                  onClick={onToggleLyrics}
+                  tint={lyricsVisible ? '#34d399' : undefined}
+                  className={lyricsVisible ? '' : 'opacity-40'}
+                >
+                  <Icon name="lyrics" size={24} />
+                </Ghost>
+              ) : (
+                <div className="w-6 shrink-0" aria-hidden="true" />
+              )}
               <Ghost
                 label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                 onClick={onToggleFav}
