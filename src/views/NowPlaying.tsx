@@ -586,7 +586,7 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
         <LyricsPanel lyrics={lyrics} />
       </div>
     </div>
-  ) : heroArt || bgArt ? (
+  ) : heroArt || bgArt || sigUrl ? (
     <div className="relative h-full w-full overflow-hidden">
       <ThumbHashHero lowSrc={bgArt ?? sigUrl} highSrc={heroArt} alt={t.album || t.name} />
     </div>
