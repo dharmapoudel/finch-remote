@@ -633,6 +633,7 @@ export class PlaybackEngine {
     if (this.remoteActive) {
       // Optimistic advance of the mirror; the catch-up poll corrects us if
       // the command didn't land (pollRemote re-syncs the index by track id).
+      const oldId = this.current()?.id ?? null;
       if (this.queue.length > 1) {
         this.index = (this.index + 1) % this.queue.length;
         const t = this.current();
@@ -646,6 +647,9 @@ export class PlaybackEngine {
         }
       }
       this.remoteCommand('NextTrack');
+      // Keep polling until the client's track actually switches; a single
+      // 300ms poll fires before Finamp swaps (1-3s), stranding the UI.
+      this.awaitRemoteTrackSwitch(oldId);
       return;
     }
     // Auto-advance with a dead link: the play would just fail and flash an
@@ -685,6 +689,7 @@ export class PlaybackEngine {
       } else {
         // Optimistic step back of the mirror; the catch-up poll corrects us
         // if the command didn't land.
+        const oldId = this.current()?.id ?? null;
         if (this.queue.length > 1 && this.index > 0) {
           this.index -= 1;
           const t = this.current();
@@ -698,6 +703,7 @@ export class PlaybackEngine {
           }
         }
         this.remoteCommand('PreviousTrack');
+        this.awaitRemoteTrackSwitch(oldId);
       }
       return;
     }
@@ -1069,6 +1075,26 @@ export class PlaybackEngine {
     window.setTimeout(() => {
       if (this.remoteActive) void this.pollRemote();
     }, 300);
+  }
+
+  // After a remote Next/Previous the client can take 1-3s to actually
+  // switch (command -> phone -> client swaps track -> server session
+  // updates). The single 300ms pollRemoteSoon usually fires before the
+  // switch lands, leaving the UI parked on the old song until the next
+  // 15s tick. Poll with backoff until the track actually changes.
+  private awaitRemoteTrackSwitch(oldTrackId: string | null): void {
+    let attempts = 0;
+    const tick = async (): Promise<void> => {
+      if (!this.remoteActive || attempts >= 6) return;
+      attempts++;
+      await this.pollRemote();
+      const cur = this.current();
+      // Track changed (or nothing to compare against) — the mirror is
+      // current, stop polling.
+      if (!oldTrackId || (cur && cur.id !== oldTrackId)) return;
+      window.setTimeout(tick, attempts < 2 ? 800 : 1500);
+    };
+    window.setTimeout(tick, 700);
   }
 
   private async pollRemote(): Promise<void> {
