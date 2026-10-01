@@ -297,10 +297,30 @@ function InfoPanel({
             <div className="shrink-0">
               <ProgressBar onSeek={ms => void player.seekTo(ms)} />
             </div>
-            {/* prev/play/next centered in the empty area between the seek
-                bar and the bottom lyrics/heart row, nudged down ~15px */}
-            <div className="flex min-h-0 flex-[2] items-center justify-center pt-[30px]">
-              <div className={`flex items-center ${small ? 'gap-12' : 'gap-10'}`}>
+            <div className="min-h-0 flex-[2]" aria-hidden="true" />
+          </div>
+
+          {/* bottom row: lyrics, prev/play/next, heart — all in one row */}
+          <div className="mb-[15px] flex w-full shrink-0 items-center justify-between">
+              {lyricsSupported !== false ? (
+                <Ghost
+                  label={
+                    hasLyrics
+                      ? lyricsVisible
+                        ? 'Hide lyrics'
+                        : 'Show lyrics'
+                      : 'No lyrics for this track'
+                  }
+                  disabled={!hasLyrics}
+                  onClick={onToggleLyrics}
+                  tint={lyricsVisible ? '#34d399' : undefined}
+                  className={lyricsVisible ? '' : 'opacity-40'}
+                >
+                  <Icon name="lyrics" size={24} />
+                </Ghost>
+              ) : (
+                <div className="w-6 shrink-0" aria-hidden="true" />
+              )}
               <Ghost label="Previous" onClick={() => void player.prev()}>
                 <TransportGlyph
                   name="skip"
@@ -330,34 +350,6 @@ function InfoPanel({
               <Ghost label="Next" onClick={() => void player.next()}>
                 <TransportGlyph name="skip" className={small ? 'h-9 w-9' : 'h-8 w-8'} />
               </Ghost>
-              </div>
-            </div>
-          </div>
-
-          {/* bottom row: lyrics and heart stay at the extremes, exactly
-              where they were; only the prev/play/next cluster moved up.
-              The Ghost's -m-3 negative margin pulls the 24px icons to the
-              row's edge (margin -12 + padding 12 = icon at x=0). */}
-          <div className="mb-[15px] flex w-full shrink-0 items-center justify-between">
-              {lyricsSupported !== false ? (
-                <Ghost
-                  label={
-                    hasLyrics
-                      ? lyricsVisible
-                        ? 'Hide lyrics'
-                        : 'Show lyrics'
-                      : 'No lyrics for this track'
-                  }
-                  disabled={!hasLyrics}
-                  onClick={onToggleLyrics}
-                  tint={lyricsVisible ? '#34d399' : undefined}
-                  className={lyricsVisible ? '' : 'opacity-40'}
-                >
-                  <Icon name="lyrics" size={24} />
-                </Ghost>
-              ) : (
-                <div className="w-6 shrink-0" aria-hidden="true" />
-              )}
               <Ghost
                 label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                 onClick={onToggleFav}
