@@ -384,13 +384,14 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
   const art = useArt();
   const portrait = usePortrait();
   const [remoteOpen, setRemoteOpen] = useState(false);
-  // Bidirectional sync: while Now Playing is visible, poll the remote for
-  // external changes (track switched directly in the phone app) every 3s.
-  // The background 15s tick is too slow when the user is watching.
+  // Bidirectional sync: while Now Playing is visible, subscribe to the
+  // Jellyfin WebSocket for instant push updates when the track changes
+  // directly in the phone app. Falls back to a poll if the socket isn't open.
   useEffect(() => {
-    player.refreshRemoteNow();
-    const t = window.setInterval(() => player.refreshRemoteNow(), 3000);
-    return () => window.clearInterval(t);
+    const unsub = player.subscribeWsPushes();
+    // If WS wasn't available, do one immediate poll to catch up.
+    if (player.remoteActive) player.refreshRemoteNow();
+    return unsub;
   }, []);
   // Auto-prompt for a playback device when the player needs one (no remote
   // found on startup and local audio not explicitly allowed).

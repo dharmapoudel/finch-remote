@@ -8,7 +8,7 @@ import { getClient } from './client';
 import { JellyfinClient, JellyfinError, type Track } from './jellyfin';
 import { RemoteControl, type RemoteSessionInfo, type RemoteState } from './remote';
 import { deferArtLoads } from './netgate';
-import { JellyfinSocket } from './jfws';
+import { JellyfinSocket, findRemoteState } from './jfws';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
@@ -1246,6 +1246,62 @@ export class PlaybackEngine {
    *  the 15s tick). Safe to call anytime; no-ops if remote isn't active. */
   refreshRemoteNow(): void {
     if (this.remoteActive) void this.pollRemote();
+  }
+
+  /**
+   * Apply a WebSocket `Sessions` push (from the persistent Now Playing
+   * subscription). If the remote track changed, mirror it — same as the
+   * poll path, but driven by the push instead of a timer.
+   */
+  applyWsSessions(sessions: any[]): void {
+    if (!this.remoteActive || !this.remoteSessionId) return;
+    const wsSt = findRemoteState(sessions, this.remoteSessionId);
+    if (!wsSt?.trackId) return;
+    const cur = this.current();
+    if (cur && cur.id === wsSt.trackId) {
+      // Same track: just sync position/pause state.
+      this.positionMs = wsSt.positionMs;
+      this.positionAt = Date.now();
+      this.intentPlaying = !wsSt.paused;
+      this.emit();
+      return;
+    }
+    // Track changed out from under us (user skipped in the phone app).
+    deferArtLoads(3000);
+    const track = {
+      id: wsSt.trackId,
+      name: wsSt.trackName ?? 'Unknown track',
+      albumId: wsSt.albumId,
+      album: wsSt.album,
+      artist: wsSt.artist,
+      durationMs: wsSt.durationMs,
+      isFavorite: wsSt.isFavorite,
+      playCount: 0,
+      imageTag: wsSt.imageTag,
+      albumImageTag: wsSt.albumImageTag,
+    };
+    const qi = this.queue.findIndex(t => t.id === track.id);
+    if (qi >= 0) this.index = qi;
+    else {
+      this.queue = [track];
+      this.index = 0;
+    }
+    this.durationMs = track.durationMs;
+    this.positionMs = wsSt.positionMs;
+    this.positionAt = Date.now();
+    this.intentPlaying = !wsSt.paused;
+    this.loading = false;
+    this.error = null;
+    this.emit();
+  }
+
+  /** Subscribe to WS `Sessions` pushes for bidirectional sync. Returns an
+   *  unsubscribe function. No-op if the socket isn't open. */
+  subscribeWsPushes(): () => void {
+    const sock = this.jfSocket;
+    if (!sock?.isOpen) return () => {};
+    sock.subscribeSessions(sessions => this.applyWsSessions(sessions));
+    return () => sock.unsubscribeSessions();
   }
 
   private async pollRemote(): Promise<void> {

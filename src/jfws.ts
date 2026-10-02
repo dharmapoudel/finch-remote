@@ -57,6 +57,7 @@ export class JellyfinSocket {
   private closed = false;
   private pendingResolve: ((sessions: any[] | null) => void) | null = null;
   private pendingTimer: number | null = null;
+  private subCallback: ((sessions: any[]) => void) | null = null;
 
   get isOpen(): boolean {
     return this.connectionId !== null;
@@ -120,6 +121,27 @@ export class JellyfinSocket {
   }
 
   /**
+   * Persistent subscription: server pushes `Sessions` on every state change.
+   * The callback fires for each push. Call unsubscribeSessions() to stop.
+   * Unlike requestSessions (one-shot), this stays subscribed — used by the
+   * Now Playing screen for instant bidirectional updates without polling.
+   */
+  subscribeSessions(cb: (sessions: any[]) => void): void {
+    if (!this.connectionId) return;
+    this.subCallback = cb;
+    void this.send({ MessageType: 'SessionsStart', Data: '0,1500' }).catch(() => {});
+  }
+
+  unsubscribeSessions(): void {
+    this.subCallback = null;
+    // Don't send SessionsStop if a one-shot request is in flight — it will
+    // stop itself. Otherwise stop the persistent subscription.
+    if (!this.pendingResolve) {
+      void this.send({ MessageType: 'SessionsStop' }).catch(() => {});
+    }
+  }
+
+  /**
    * Request one `Sessions` push. Subscribes, waits for the next push (or
    * timeout), then unsubscribes. Resolves with the session list, or null on
    * timeout/failure (caller falls back to HTTP poll).
@@ -163,16 +185,24 @@ export class JellyfinSocket {
     } catch {
       return;
     }
-    if (msg.MessageType === 'Sessions' && Array.isArray(msg.Data) && this.pendingResolve) {
-      if (this.pendingTimer !== null) {
-        window.clearTimeout(this.pendingTimer);
-        this.pendingTimer = null;
+    if (msg.MessageType === 'Sessions' && Array.isArray(msg.Data)) {
+      // Persistent subscriber (Now Playing bidirectional sync) gets every push.
+      this.subCallback?.(msg.Data);
+      // One-shot requester gets the first push, then we unsubscribe.
+      if (this.pendingResolve) {
+        if (this.pendingTimer !== null) {
+          window.clearTimeout(this.pendingTimer);
+          this.pendingTimer = null;
+        }
+        const r = this.pendingResolve;
+        this.pendingResolve = null;
+        // Unsubscribe immediately: we got what we came for — unless a
+        // persistent subscriber is active, in which case stay subscribed.
+        if (!this.subCallback) {
+          void this.send({ MessageType: 'SessionsStop' }).catch(() => {});
+        }
+        r(msg.Data);
       }
-      const r = this.pendingResolve;
-      this.pendingResolve = null;
-      // Unsubscribe immediately: we got what we came for.
-      void this.send({ MessageType: 'SessionsStop' }).catch(() => {});
-      r(msg.Data);
     }
   }
 
