@@ -73,7 +73,7 @@ export function RemoteSheet({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8">
-          <button type="button" data-focusable onClick={() => { player.disableRemote(); onClose(); }} className={row}>
+          <button type="button" data-focusable onClick={() => { void player.allowLocalAudio().then(() => { player.disableRemote(); onClose(); }); }} className={row}>
             <Icon name="note" size={30} className="shrink-0 text-white/60" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-xl font-semibold">This device</div>

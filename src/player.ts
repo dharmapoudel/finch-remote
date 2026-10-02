@@ -158,6 +158,14 @@ export class PlaybackEngine {
   private lastArmedPlaying: boolean | null = null;
   /** WebSocket push channel for remote session updates (no polling lag). */
   private jfSocket: JellyfinSocket | null = null;
+  /** True when the UI should prompt for a playback device (no remote found,
+   *  local audio not yet explicitly allowed). */
+  needsDeviceChoice = false;
+  /** Local audio requires explicit user choice ("This device") — never
+   *  default to it, so Finch doesn't grab the phone's audio session
+   *  uninvited. Persisted. */
+  private localAudioAllowed = false;
+  private static readonly LOCAL_AUDIO_KEY = 'finch:local-audio-allowed';
 
   // (Re)start the remote poll at the cadence matching the current play
   // state. Called on attach, reconnect, play/pause flips, and whenever the
@@ -487,8 +495,40 @@ export class PlaybackEngine {
       list = [first, ...shuffled(list.filter((_, i) => i !== idx))];
       idx = 0;
     }
+    // Remote-first: local audio grabs the phone's audio session. Only play
+    // locally if the user explicitly chose "This device".
+    if (!this.remoteActive) {
+      await this.ensureLocalAudioAllowed();
+      if (!this.localAudioAllowed) {
+        this.needsDeviceChoice = true;
+        this.emit();
+        return;
+      }
+    }
     this.queue = list;
     await this.playAt(idx);
+  }
+
+  /** Explicit user opt-in to local audio ("This device"). Persisted. */
+  async allowLocalAudio(): Promise<void> {
+    this.localAudioAllowed = true;
+    this.needsDeviceChoice = false;
+    try {
+      await getClient().store.put({ key: PlaybackEngine.LOCAL_AUDIO_KEY, value: '1' });
+    } catch {
+      // non-fatal
+    }
+    this.emit();
+  }
+
+  private async ensureLocalAudioAllowed(): Promise<void> {
+    if (this.localAudioAllowed) return;
+    try {
+      const r = await getClient().store.get({ key: PlaybackEngine.LOCAL_AUDIO_KEY });
+      this.localAudioAllowed = !!(r.ok && r.response.value);
+    } catch {
+      // default false
+    }
   }
 
   private async playAt(i: number, startMs = 0): Promise<void> {
@@ -1051,6 +1091,7 @@ export class PlaybackEngine {
     this.loading = false;
     this.armRemotePoll();
     this.openRemoteSocket();
+    this.needsDeviceChoice = false;
     this.emit();
     try {
       await getClient().store.put({
@@ -1335,6 +1376,7 @@ export class PlaybackEngine {
   // song was playing last").
   async reconcileRemote(): Promise<void> {
     if (!this.jf || this.remoteActive) return;
+    await this.ensureLocalAudioAllowed();
     const saved = await this.loadPersistedRemote();
     const remote = new RemoteControl(this.jf);
     if (saved?.sessionId) {
@@ -1363,9 +1405,18 @@ export class PlaybackEngine {
         }
       }
       const last = sessions.find(s => s.nowPlayingName);
-      if (last) await this.enableRemote(last.id, last.client, last.deviceName);
+      if (last) {
+        await this.enableRemote(last.id, last.client, last.deviceName);
+        return;
+      }
     } catch {
-      // nothing to adopt; stay in local mode
+      // nothing to adopt; fall through
+    }
+    // No remote device found and local audio not explicitly allowed:
+    // prompt for a device instead of grabbing the phone's audio session.
+    if (!this.localAudioAllowed) {
+      this.needsDeviceChoice = true;
+      this.emit();
     }
   }
 

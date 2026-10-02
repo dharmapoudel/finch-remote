@@ -384,6 +384,18 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
   const art = useArt();
   const portrait = usePortrait();
   const [remoteOpen, setRemoteOpen] = useState(false);
+  // Auto-prompt for a playback device when the player needs one (no remote
+  // found on startup and local audio not explicitly allowed).
+  useEffect(() => {
+    if (player.needsDeviceChoice) setRemoteOpen(true);
+  }, [playerRev]);
+  useEffect(() => {
+    if (!remoteOpen && player.needsDeviceChoice) {
+      // Sheet dismissed without choosing: clear the flag so it doesn't
+      // re-open on every render. The user can reopen via the device button.
+      player.needsDeviceChoice = false;
+    }
+  }, [remoteOpen]);
   const [lyricsSupported, setLyricsSupported] = useState<boolean | null>(null);
   const [lyrics, setLyrics] = useState<LyricsState>({ state: 'loading' });
   // Sticky preference owned by the player (persisted across restarts):
