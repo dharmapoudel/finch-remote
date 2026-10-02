@@ -271,6 +271,10 @@ export class JellyfinClient {
   get userId(): string {
     return this.creds.userId;
   }
+  /** The user access token (Quick Connect), for WebSocket auth headers. */
+  get token(): string {
+    return this.creds.apiKey;
+  }
 
   private url(path: string, params: Record<string, string | number | boolean> = {}): string {
     const q = new URLSearchParams({ ApiKey: this.creds.apiKey });
