@@ -191,6 +191,42 @@ export class PlaybackEngine {
   }
   private remoteGen = 0;
   private lastRemoteCmdAt = 0;
+  // Daemon media-session position (phone's Now Playing), used for exact
+  // seek-bar/lyrics timing in remote mode. The Jellyfin server's PositionTicks
+  // is ~2s stale; the daemon reports positionAgeMs (how old the reading is),
+  // which O-Music uses for exact sync. We do the same when the daemon's
+  // track matches our Jellyfin track.
+  private daemonPos: { ms: number; ageMs: number; at: number; title: string | null } | null = null;
+  private daemonUnsub: (() => void) | null = null;
+  /** Subscribe to the daemon's media-session position for exact timing.
+   *  The daemon forwards the phone's Now Playing state with positionAgeMs;
+   *  when it matches our Jellyfin track, positionNow() uses it instead of
+   *  the stale server position. */
+  private subscribeDaemonPos(): void {
+    if (this.daemonUnsub) return;
+    try {
+      this.daemonUnsub = getClient().player.onSnapshot(msg => {
+        const pb = msg.state?.playback;
+        const track = msg.state?.track;
+        if (!pb) return;
+        this.daemonPos = {
+          ms: pb.positionMs,
+          ageMs: pb.positionAgeMs ?? 0,
+          at: Date.now(),
+          title: track?.title ?? null,
+        };
+      });
+    } catch {
+      // daemon player unavailable; fall back to Jellyfin position
+    }
+  }
+
+  private unsubscribeDaemonPos(): void {
+    this.daemonUnsub?.();
+    this.daemonUnsub = null;
+    this.daemonPos = null;
+  }
+
   // True while the phone Bluetooth link is known down: remote mode is kept
   // (the user picked it) but commands short-circuit with 'The phone link
   // dropped.' instead of failing confusingly, until the link recovers.
@@ -255,6 +291,24 @@ export class PlaybackEngine {
   }
 
   positionNow(): number {
+    // Prefer the daemon's media-session position when it matches our track:
+    // it carries positionAgeMs (exact age of the reading), giving O-Music-
+    // level timing. Falls back to the Jellyfin server position (with the 2s
+    // track-change nudge) when the daemon isn't in sync.
+    if (this.remoteActive && this.intentPlaying) {
+      const dp = this.daemonPos;
+      const cur = this.current();
+      if (
+        dp &&
+        cur &&
+        dp.title &&
+        cur.name &&
+        dp.title.toLowerCase().trim() === cur.name.toLowerCase().trim()
+      ) {
+        const exact = dp.ms + dp.ageMs + (Date.now() - dp.at);
+        return Math.min(exact, this.durationMs || Infinity);
+      }
+    }
     if (this.intentPlaying && this.positionMs >= 0) {
       return Math.min(this.positionMs + (Date.now() - this.positionAt), this.durationMs || Infinity);
     }
@@ -1106,6 +1160,7 @@ export class PlaybackEngine {
     this.loading = false;
     this.armRemotePoll();
     this.openRemoteSocket();
+    this.subscribeDaemonPos();
     this.needsDeviceChoice = false;
     this.emit();
     try {
@@ -1138,6 +1193,7 @@ export class PlaybackEngine {
   disableRemote(): void {
     this.remoteGen++;
     this.closeRemoteSocket();
+    this.unsubscribeDaemonPos();
     if (this.remotePollTimer !== null) {
       window.clearInterval(this.remotePollTimer);
       this.remotePollTimer = null;
