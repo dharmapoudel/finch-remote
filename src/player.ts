@@ -1294,6 +1294,43 @@ export class PlaybackEngine {
     }
     this.remoteClient = st.client || this.remoteClient;
     this.remoteDevice = st.deviceName || this.remoteDevice;
+    // If the known session is idle but the same client has another session
+    // actually playing (user started playback directly in the phone app,
+    // which can spin up a new session), adopt the playing one.
+    if (!st.track && this.jf) {
+      try {
+        const sessions = await new RemoteControl(this.jf).discover();
+        if (gen !== this.remoteGen) return;
+        const playing = sessions.find(
+          s => s.id !== sid && s.client === this.remoteClient && s.isPlaying && s.nowPlayingName,
+        );
+        if (playing) {
+          this.remoteSessionId = playing.id;
+          try {
+            const healedSt = await new RemoteControl(this.jf).state(playing.id);
+            if (healedSt?.track) {
+              st = healedSt;
+              try {
+                await getClient().store.put({
+                  key: REMOTE_KEY,
+                  value: JSON.stringify({
+                    sessionId: playing.id,
+                    client: playing.client,
+                    deviceName: playing.deviceName,
+                  }),
+                });
+              } catch {
+                // non-fatal
+              }
+            }
+          } catch {
+            // keep the original st
+          }
+        }
+      } catch {
+        // discover failed; keep the original st
+      }
+    }
     // The session is alive and has a track: any in-flight remote play has
     // landed (or been answered), so the spinner can go — the track-change
     // branch below handles the new-track case, this covers the same-track

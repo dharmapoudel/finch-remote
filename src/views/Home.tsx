@@ -160,8 +160,17 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
                   : undefined
               }
             >
-              {recent.data.slice(0, RAIL_N).map((t, i) => {
-                const isCurrent = nowActive && t.id === nowId;
+              {(() => {
+                // The currently playing track isn't in Jellyfin's DatePlayed
+                // list yet (it's marked played only after it finishes) — pin
+                // it to the front of the rail so it's always visible.
+                const now = nowActive ? player.current() : null;
+                const list =
+                  now && !recent.data!.some(t => t.id === now.id)
+                    ? [now, ...recent.data!]
+                    : recent.data!;
+                return list.slice(0, RAIL_N).map((t, i) => {
+                  const isCurrent = nowActive && t.id === nowId;
                 return (
                   <Rise key={t.id} i={i}>
                     <Tile
@@ -175,13 +184,14 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
                         nav({ name: 'nowplaying' });
                         // Tapping the currently-playing tile just opens Now
                         // Playing; every other tile starts it from scratch.
-                        if (!isCurrent) void player.playQueue(recent.data!, recent.data!.indexOf(t));
+                        if (!isCurrent) void player.playQueue(list, list.indexOf(t));
                       }}
                       onMenu={() => openMenu(t.name, menuFor(t))}
                     />
                   </Rise>
                 );
-              })}
+                });
+              })()}
             </Rail>
           </Rise>
         ) : (
