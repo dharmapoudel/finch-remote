@@ -654,9 +654,17 @@ export class JellyfinClient {
     // NOTE: the route is /Playing (not /Play) and every argument is a query
     // parameter — see SessionController.Play in the Jellyfin source. A body
     // is not accepted.
+    //
+    // Cap the list: every id rides in the URL query string, and a 500-track
+    // playlist makes a ~16KB URL that wedges the Bluetooth tunnel (the phone
+    // buffers the whole net.fetch reply; huge URLs drop the link). 200 ids
+    // ≈ 6.4KB, safe. The user can still reach the rest from the phone.
+    const MAX_IDS = 200;
+    const ids = itemIds.length > MAX_IDS ? itemIds.slice(0, MAX_IDS) : itemIds;
+    if (itemIds.length > MAX_IDS) startIndex = Math.min(startIndex, MAX_IDS - 1);
     const params: Record<string, string | number | boolean> = {
       playCommand: 'PlayNow',
-      itemIds: itemIds.join(','),
+      itemIds: ids.join(','),
     };
     if (startIndex > 0) params.startIndex = startIndex;
     await this.request<void>('POST', `/Sessions/${encodeURIComponent(sessionId)}/Playing`, params, undefined, 'front');

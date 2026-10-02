@@ -14,7 +14,7 @@ import {
 } from 'react';
 import { player } from './player';
 import { getClient } from './client';
-import { gatedNet } from './netgate';
+import { artDeferWaitMs, gatedNet } from './netgate';
 import type { Album, Artist, Playlist, Track } from './jellyfin';
 import { FocusScope } from './fx/focus';
 import { GlassPanel } from './fx/shaders';
@@ -339,6 +339,9 @@ async function loadArt(
     rememberArt(url, hit); // refresh LRU order
     return hit;
   }
+  // Defer new downloads while the link settles after a remote switch.
+  const wait = artDeferWaitMs();
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
   // Skippable loads (tile artwork) are NOT deduped via artInflight: a shared
   // load's skip-check belongs to another tile, so one tile scrolling away
   // could abandon art a still-visible tile needs. Completed art is still

@@ -7,6 +7,7 @@
 import { getClient } from './client';
 import { JellyfinClient, JellyfinError, type Track } from './jellyfin';
 import { RemoteControl, type RemoteSessionInfo, type RemoteState } from './remote';
+import { deferArtLoads } from './netgate';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
@@ -1124,6 +1125,7 @@ export class PlaybackEngine {
         this.loading = false;
         const cur = this.current();
         if (!cur || cur.id !== st.track.id) {
+          deferArtLoads(3000);
           const qi = this.queue.findIndex(t => t.id === st.track!.id);
           if (qi >= 0) this.index = qi;
           else {
@@ -1216,6 +1218,9 @@ export class PlaybackEngine {
       // Track changed (the client advanced, or the user skipped on the phone).
       // Keep the mirrored queue when the new track is in it; otherwise the
       // session's queue changed out from under us — mirror the track alone.
+      // Defer art downloads 3s: the link is busy with command + polls, and
+      // a burst of concurrent buffering is what drops the connection.
+      deferArtLoads(3000);
       const qi = this.queue.findIndex(t => t.id === st.track!.id);
       if (qi >= 0) this.index = qi;
       else {

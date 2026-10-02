@@ -63,6 +63,17 @@ function pumpLane(lane: Lane): void {
   }
 }
 
+// Remote-switch art deferral: after a remote track change, the Bluetooth
+// link is busy with command + polls. New art downloads wait until the link
+// stabilizes; memory-cached art still shows instantly (checked before this).
+let artDeferUntil = 0;
+export function deferArtLoads(ms: number): void {
+  artDeferUntil = Math.max(artDeferUntil, Date.now() + ms);
+}
+export function artDeferWaitMs(): number {
+  return Math.max(0, artDeferUntil - Date.now());
+}
+
 // priority 'front': the task jumps ahead of queued work in its lane (but
 // never preempts a running one). 'back': normal FIFO order.
 // shouldSkip: optional abandonment check, evaluated when the task reaches the
