@@ -472,6 +472,8 @@ export class PlaybackEngine {
         list = [first, ...shuffled(list.filter((_, i) => i !== idx))];
         idx = 0;
       }
+      const oldId = this.current()?.id ?? null;
+      const expectedId = list[idx]?.id ?? null;
       this.queue = list;
       this.index = idx;
       this.loading = true;
@@ -485,7 +487,10 @@ export class PlaybackEngine {
         this.setRemoteCommandError(e);
       }
       this.emit();
-      this.pollRemoteSoon();
+      // Wait for the expected track — don't pollRemoteSoon() here: the 300ms
+      // poll fires before Finamp switches and would clobber the optimistic
+      // playlist with the old track.
+      this.awaitRemoteTrackSwitch(oldId, expectedId ?? undefined);
       return;
     }
     let list = [...tracks];
@@ -1159,7 +1164,7 @@ export class PlaybackEngine {
   // spaced out, so we don't saturate the phone's Bluetooth-tethered link.
   // A new skip cancels the previous wait via the generation counter.
   private trackSwitchGen = 0;
-  private awaitRemoteTrackSwitch(oldTrackId: string | null): void {
+  private awaitRemoteTrackSwitch(oldTrackId: string | null, expectedId?: string): void {
     const gen = ++this.trackSwitchGen;
     let attempts = 0;
     const tick = async (): Promise<void> => {
@@ -1184,6 +1189,22 @@ export class PlaybackEngine {
       }
       if (gen !== this.trackSwitchGen || !this.remoteActive) return;
       if (st?.track) {
+        // If we know what we're waiting for (playQueue), don't clobber the
+        // optimistic queue with the old track — wait for the expected one.
+        if (expectedId) {
+          if (st.track.id === expectedId) {
+            this.loading = false;
+            this.positionMs = st.positionMs;
+            this.positionAt = Date.now();
+            this.intentPlaying = !st.paused;
+            this.error = null;
+            this.emit();
+            return; // Expected track confirmed — done.
+          }
+          // Not there yet: keep waiting, don't touch the optimistic state.
+          window.setTimeout(tick, 800);
+          return;
+        }
         this.loading = false;
         const cur = this.current();
         if (!cur || cur.id !== st.track.id) {
