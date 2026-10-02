@@ -97,8 +97,13 @@ export class RemoteControl {
   }
 
   command(sessionId: string, cmd: RemoteCommand, seekMs?: number): Promise<void> {
+    // Seek uses the dedicated /Playing/Seek endpoint with SeekPositionTicks
+    // as a QUERY param (the server ignores it in the POST body). Other
+    // commands go through the generic /Playing/{cmd} endpoint.
+    if (cmd === 'Seek' && seekMs !== undefined) {
+      return this.jf.remoteSeek(sessionId, Math.round(seekMs * 10_000));
+    }
     const body: Record<string, unknown> = { Command: cmd };
-    if (cmd === 'Seek' && seekMs !== undefined) body.SeekPositionTicks = Math.round(seekMs * 10_000);
     return this.jf.remotePlaystate(sessionId, cmd, body);
   }
 

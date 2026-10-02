@@ -652,6 +652,18 @@ export class JellyfinClient {
     );
   }
 
+  /** Seek a specific session: POST /Sessions/{id}/Playing/Seek with the
+   *  position in ticks as a query param (body is ignored by the server). */
+  async remoteSeek(sessionId: string, positionTicks: number): Promise<void> {
+    await this.request<void>(
+      'POST',
+      `/Sessions/${encodeURIComponent(sessionId)}/Playing/Seek`,
+      { SeekPositionTicks: positionTicks },
+      undefined,
+      'front',
+    );
+  }
+
   // Instruct one session to start playing items (the client builds its own
   // queue from ItemIds, starting at StartIndex).
   async remotePlay(sessionId: string, itemIds: string[], startIndex = 0): Promise<void> {
