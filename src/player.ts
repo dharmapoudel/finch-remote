@@ -8,7 +8,7 @@ import { getClient } from './client';
 import { JellyfinClient, JellyfinError, type Track } from './jellyfin';
 import { RemoteControl, type RemoteSessionInfo, type RemoteState } from './remote';
 import { deferArtLoads } from './netgate';
-import { JellyfinSocket, findRemoteState } from './jfws';
+import { JellyfinSocket } from './jfws';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
@@ -1179,48 +1179,16 @@ export class PlaybackEngine {
         return;
       }
       attempts++;
-      // Try the WebSocket on-demand push first (instant, no poll wait).
-      // Falls back to the light HTTP single-session fetch.
+      // HTTP single-session poll only. The WebSocket on-demand push was
+      // tried here but the 15KB Sessions message drops the Bluetooth link
+      // on every next-click — the phone's WS forwarding can't handle it
+      // reliably. The socket stays open (keepalive) for future use.
       let st: RemoteState | null = null;
-      const sock = this.jfSocket;
-      const sid = this.remoteSessionId;
-      if (sock?.isOpen && sid) {
-        try {
-          const sessions = await sock.requestSessions(2000);
-          if (gen !== this.trackSwitchGen || !this.remoteActive) return;
-          if (sessions) {
-            const wsSt = findRemoteState(sessions, sid);
-            if (wsSt?.trackId) {
-              st = {
-                track: {
-                  id: wsSt.trackId,
-                  name: wsSt.trackName ?? 'Unknown track',
-                  albumId: wsSt.albumId,
-                  album: wsSt.album,
-                  artist: wsSt.artist,
-                  durationMs: wsSt.durationMs,
-                  isFavorite: wsSt.isFavorite,
-                  playCount: 0,
-                  imageTag: wsSt.imageTag,
-                  albumImageTag: wsSt.albumImageTag,
-                },
-                positionMs: wsSt.positionMs,
-                paused: wsSt.paused,
-                client: this.remoteClient,
-                deviceName: this.remoteDevice,
-              };
-            }
-          }
-        } catch {
-          // WS failed — fall through to HTTP
-        }
-      }
-      if (!st && this.jf && sid) {
-        try {
-          st = await new RemoteControl(this.jf).stateOne(sid);
-        } catch {
-          // Transport failure — try once more, then give up quietly.
-        }
+      try {
+        const sid = this.remoteSessionId;
+        if (this.jf && sid) st = await new RemoteControl(this.jf).stateOne(sid);
+      } catch {
+        // Transport failure — try once more, then give up quietly.
       }
       if (gen !== this.trackSwitchGen || !this.remoteActive) return;
       if (st?.track) {
