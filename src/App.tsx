@@ -687,7 +687,7 @@ export default function App() {
   // between the four main tabs via hardware keys or the tab strip) — that
   // path swaps content instantly, like 1.0.70 did.
   const viewAnim =
-    view.name === 'nowplaying' ? 'animate-iris' : lastNavWasPushRef.current ? 'animate-view-enter' : '';
+    lastNavWasPushRef.current ? 'animate-view-enter' : '';
 
   return (
     <ArtCtx.Provider value={artResolver}>

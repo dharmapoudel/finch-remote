@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Artwork, Icon, IconBtn, useArt, usePlayer } from './components';
+import { Artwork, Icon, IconBtn, ProgressBar, useArt, usePlayer } from './components';
 import { player } from './player';
 
 export type MiniState = 'hidden' | 'mini' | 'sliver';
@@ -59,61 +59,63 @@ export function SeekSliver({ onExpand }: { onExpand: () => void }) {
 export function MiniBar({ onExpand, onCollapse }: { onExpand: () => void; onCollapse: () => void }) {
   usePlayer();
   const art = useArt();
-  const [, setTick] = useState(0);
   const t = player.current();
   const playing = player.intentPlaying && !player.loading;
-  const startY = useRef<{ x: number; y: number } | null>(null);
-
-  useEffect(() => {
-    if (!playing) return;
-    const id = window.setInterval(() => setTick(x => x + 1), 500);
-    return () => window.clearInterval(id);
-  }, [playing, t?.id]);
+  const barRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startY: number; dy: number } | null>(null);
 
   if (!t) return null;
-  const dur = player.trackDurationMs || t.durationMs || 0;
-  const pos = Math.min(player.positionNow(), dur);
-  const ratio = dur > 0 ? pos / dur : 0;
 
-  const seekTo = (clientX: number, el: HTMLElement) => {
-    const r = el.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
-    void player.seekTo(ratio * dur);
+  const onTouchStart = (e: React.TouchEvent): void => {
+    const p = e.touches[0];
+    dragRef.current = { startY: p.clientY, dy: 0 };
+    const el = barRef.current;
+    if (el) {
+      el.style.transition = 'none';
+      el.style.willChange = 'transform, opacity';
+    }
+  };
+  const onTouchMove = (e: React.TouchEvent): void => {
+    const d = dragRef.current;
+    const el = barRef.current;
+    if (!d || !el) return;
+    const p = e.touches[0];
+    const dy = Math.max(0, p.clientY - d.startY);
+    d.dy = dy;
+    el.style.transform = `translateY(${dy}px)`;
+    const progress = Math.min(1, dy / 120);
+    el.style.opacity = String(1 - progress * 0.6);
+  };
+  const onTouchEnd = (): void => {
+    const d = dragRef.current;
+    const el = barRef.current;
+    dragRef.current = null;
+    if (!d || !el) return;
+    el.style.transition =
+      'transform 0.28s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.28s cubic-bezier(0.32, 0.72, 0, 1)';
+    el.style.willChange = 'auto';
+    if (d.dy > 50) {
+      // Snap down to the sliver.
+      el.style.transform = 'translateY(100%)';
+      el.style.opacity = '0';
+      window.setTimeout(() => onCollapse(), 260);
+    } else {
+      el.style.transform = 'translateY(0px)';
+      el.style.opacity = '1';
+    }
   };
 
   return (
     <div
+      ref={barRef}
       className="absolute inset-x-0 bottom-0 z-30 select-none"
-      onTouchStart={e => {
-        const p = e.touches[0];
-        startY.current = { x: p.clientX, y: p.clientY };
-      }}
-      onTouchEnd={e => {
-        const s = startY.current;
-        startY.current = null;
-        if (!s) return;
-        const p = e.changedTouches[0];
-        const dy = p.clientY - s.y;
-        const dx = p.clientX - s.x;
-        // swipe down collapses to the sliver
-        if (dy > 60 && Math.abs(dx) < 80) {
-          onCollapse();
-        }
-      }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
     >
-      {/* 20px seekbar strip on top — tap/drag to seek */}
-      <div
-        role="slider"
-        aria-label="Seek"
-        aria-valuemin={0}
-        aria-valuemax={Math.round(dur)}
-        aria-valuenow={Math.round(pos)}
-        className="relative h-5 w-full cursor-pointer"
-        onClick={e => seekTo(e.clientX, e.currentTarget)}
-      >
-        <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 bg-white/15">
-          <div className="h-full bg-white/70" style={{ width: `${Math.round(ratio * 100)}%` }} />
-        </div>
+      {/* 20px seekbar strip on top — identical to fullscreen ProgressBar */}
+      <div className="flex h-5 w-full items-center px-4">
+        <ProgressBar onSeek={ms => void player.seekTo(ms)} />
       </div>
       {/* transport row */}
       <div

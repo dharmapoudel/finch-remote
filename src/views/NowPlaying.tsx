@@ -413,7 +413,6 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
   const t = player.current();
   const trackId = t?.id;
   const artPanelRef = useRef<HTMLDivElement>(null);
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
 
   // ---- knob: volume on this screen ----
   // The knob drives the phone's volume while this view is up (no focus
@@ -447,23 +446,55 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
   const hasLyrics = lyrics.state === 'synced' || lyrics.state === 'plain';
   const showLyrics = lyricsTab && hasLyrics;
 
-  // A swipe down starting near the top edge minimizes back to the mini
-  // player. Touches inside the lyrics panel are left alone so the lyrics
-  // keep scrolling instead of minimizing.
+  // Draggable sheet: the whole Now Playing panel follows the finger down.
+  // Release past 25% of screen height → snap to mini bar (onMinimize).
+  // Release before → spring back. Uses direct DOM transforms for 60fps;
+  // React state would lag the finger.
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startY: number; dy: number } | null>(null);
+
   const onTouchStart = (e: RTouchEvent): void => {
-    const p = e.touches[0];
-    touchStart.current = { x: p.clientX, y: p.clientY };
-  };
-  const onTouchEnd = (e: RTouchEvent): void => {
-    const s = touchStart.current;
-    touchStart.current = null;
-    if (!s) return;
-    const p = e.changedTouches[0];
-    const dy = p.clientY - s.y;
-    const dx = p.clientX - s.x;
+    // Touches inside the lyrics panel scroll the lyrics instead of dragging.
     if (showLyrics && artPanelRef.current?.contains(e.target as Node)) return;
-    if (s.y < window.innerHeight * 0.3 && dy > 70 && Math.abs(dx) < 60) {
-      onMinimize();
+    const p = e.touches[0];
+    dragRef.current = { startY: p.clientY, dy: 0 };
+    const el = sheetRef.current;
+    if (el) {
+      el.style.transition = 'none';
+      el.style.willChange = 'transform, opacity';
+    }
+  };
+  const onTouchMove = (e: RTouchEvent): void => {
+    const d = dragRef.current;
+    const el = sheetRef.current;
+    if (!d || !el) return;
+    const p = e.touches[0];
+    const dy = Math.max(0, p.clientY - d.startY);
+    d.dy = dy;
+    // 1:1 follow; fade slightly as it leaves so the mini bar underneath
+    // reads as the elements "rearranging" into it.
+    el.style.transform = `translateY(${dy}px)`;
+    const progress = Math.min(1, dy / (window.innerHeight * 0.6));
+    el.style.opacity = String(1 - progress * 0.4);
+  };
+  const onTouchEnd = (): void => {
+    const d = dragRef.current;
+    const el = sheetRef.current;
+    dragRef.current = null;
+    if (!d || !el) return;
+    const threshold = window.innerHeight * 0.22;
+    // Pleasant spring for both snap directions.
+    el.style.transition =
+      'transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.32s cubic-bezier(0.32, 0.72, 0, 1)';
+    el.style.willChange = 'auto';
+    if (d.dy > threshold) {
+      // Snap down and off: the mini bar takes over.
+      el.style.transform = 'translateY(105%)';
+      el.style.opacity = '0';
+      window.setTimeout(() => onMinimize(), 300);
+    } else {
+      el.style.transform = 'translateY(0px)';
+      el.style.opacity = '1';
     }
   };
 
@@ -647,7 +678,13 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
 
   return (
     <>
-      <div className="relative flex h-full" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+      <div
+        ref={sheetRef}
+        className="relative flex h-full"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
         <div ref={artPanelRef} className="h-full w-[55%] shrink-0 overflow-hidden">
           {artPanel}
         </div>
