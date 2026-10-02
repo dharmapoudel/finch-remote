@@ -29,6 +29,7 @@ import NowPlaying from './views/NowPlaying';
 import { QueueHandle, QueueSheet } from './QueueSheet';
 import Queue from './views/Queue';
 import Setup, { CREDS_KEY, type StoredCreds } from './views/Setup';
+import { MiniBar, SeekSliver, type MiniState } from './MiniBar';
 
 // Phone settings page "Clear cached data" writes this config key with a
 // timestamp; the device wipes its caches when it sees it (real-time while
@@ -213,6 +214,9 @@ export default function App() {
   const [queueOpen, setQueueOpen] = useState(false);
   const [daemonUp, setDaemonUp] = useState(true);
   const menu = useMenu();
+  // Mini player state: 'mini' (bar with 20px seekbar) or 'sliver' (2px line).
+  // Set when Now Playing is dragged down; hidden while full Now Playing is open.
+  const [miniState, setMiniState] = useState<MiniState>('hidden');
   usePlayer();
 
   // "Clear cached data" from the phone settings page writes this config key.
@@ -424,10 +428,13 @@ export default function App() {
     // Now Playing replaced the stack on open, so minimizing restores the
     // whole pre-Now-Playing stack — back from the return view pops to its
     // parent instead of being stuck on a single-item stack.
+    // It also drops to the mini bar (not fully hidden) so playback stays
+    // visible and controllable.
     const s = stackBeforeNpRef.current;
     stackBeforeNpRef.current = null;
     lastNavWasPushRef.current = true;
     setStack(s && s.length ? s : [returnViewRef.current]);
+    setMiniState('mini');
   }, []);
 
   const back = useCallback(() => {
@@ -708,8 +715,25 @@ export default function App() {
             {renderView()}
           </div>
         </FocusScope>
-        {/* Queue bar on every screen while a song is playing; the mini player is gone. */}
-        {current ? <QueueHandle onOpen={() => setQueueOpen(true)} /> : null}
+        {/* Queue handle: only on the fullscreen Now Playing screen. Hidden
+            everywhere else (the mini bar / sliver own the bottom edge there). */}
+        {current && view.name === 'nowplaying' ? (
+          <QueueHandle onOpen={() => setQueueOpen(true)} />
+        ) : null}
+        {/* Mini player: shown when Now Playing was dragged down. Hidden while
+            the full Now Playing screen is open. */}
+        {current && view.name !== 'nowplaying' && miniState === 'mini' ? (
+          <MiniBar
+            onExpand={() => {
+              setMiniState('hidden');
+              nav({ name: 'nowplaying' });
+            }}
+            onCollapse={() => setMiniState('sliver')}
+          />
+        ) : null}
+        {current && view.name !== 'nowplaying' && miniState === 'sliver' ? (
+          <SeekSliver onExpand={() => setMiniState('mini')} />
+        ) : null}
         {queueOpen ? (
           <QueueSheet
             onClose={() => setQueueOpen(false)}
