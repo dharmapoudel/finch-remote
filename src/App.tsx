@@ -424,17 +424,15 @@ export default function App() {
     [nav, cancelPressTimer],
   );
 
-  const minimizeNowPlaying = useCallback(() => {
+  const minimizeNowPlaying = useCallback((target: MiniState = 'mini') => {
     // Now Playing replaced the stack on open, so minimizing restores the
     // whole pre-Now-Playing stack — back from the return view pops to its
     // parent instead of being stuck on a single-item stack.
-    // It also drops to the mini bar (not fully hidden) so playback stays
-    // visible and controllable.
     const s = stackBeforeNpRef.current;
     stackBeforeNpRef.current = null;
     lastNavWasPushRef.current = true;
     setStack(s && s.length ? s : [returnViewRef.current]);
-    setMiniState('mini');
+    setMiniState(target === 'hidden' ? 'hidden' : target);
   }, []);
 
   const back = useCallback(() => {

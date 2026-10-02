@@ -379,7 +379,11 @@ function InfoPanel({
   );
 }
 
-export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMinimize: () => void }) {
+export default function NowPlaying({
+  jf,
+  nav,
+  onMinimize,
+}: ViewProps & { onMinimize: (target?: 'mini' | 'sliver') => void }) {
   const playerRev = usePlayer();
   const art = useArt();
   const portrait = usePortrait();
@@ -446,12 +450,37 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
   const hasLyrics = lyrics.state === 'synced' || lyrics.state === 'plain';
   const showLyrics = lyricsTab && hasLyrics;
 
-  // Draggable sheet: the whole Now Playing panel follows the finger down.
-  // Release past 25% of screen height → snap to mini bar (onMinimize).
-  // Release before → spring back. Uses direct DOM transforms for 60fps;
-  // React state would lag the finger.
+  // Draggable sheet with three snap points: full (0), mini (~22% = 84px bar),
+  // sliver (2px). The drag is continuous — you can go from full all the way
+  // to sliver in one gesture. Layers crossfade based on drag position:
+  // full UI fades out as mini fades in; mini fades out as sliver fades in.
+  // Direct DOM updates for 60fps; React state would lag the finger.
   const sheetRef = useRef<HTMLDivElement>(null);
+  const fullLayerRef = useRef<HTMLDivElement>(null);
+  const miniLayerRef = useRef<HTMLDivElement>(null);
+  const sliverLayerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startY: number; dy: number } | null>(null);
+
+  const MINI_H = 84;
+  const SLIVER_H = 2;
+
+  const updateLayers = (dy: number): void => {
+    const H = window.innerHeight;
+    const miniY = H - MINI_H;
+    const sliverY = H - SLIVER_H;
+    // 0→1 as we drag from full to mini position
+    const pMini = Math.min(1, Math.max(0, dy / miniY));
+    // 0→1 as we drag from mini to sliver position
+    const pSliver = Math.min(1, Math.max(0, (dy - miniY) / (sliverY - miniY)));
+    const full = fullLayerRef.current;
+    const mini = miniLayerRef.current;
+    const sliver = sliverLayerRef.current;
+    if (full) full.style.opacity = String(1 - pMini);
+    if (mini) mini.style.opacity = String(pMini * (1 - pSliver));
+    if (sliver) sliver.style.opacity = String(pSliver);
+    // Scale down the full UI slightly as it fades, for a pleasant morph.
+    if (full) full.style.transform = `scale(${1 - pMini * 0.08})`;
+  };
 
   const onTouchStart = (e: RTouchEvent): void => {
     // Touches inside the lyrics panel scroll the lyrics instead of dragging.
@@ -461,7 +490,7 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
     const el = sheetRef.current;
     if (el) {
       el.style.transition = 'none';
-      el.style.willChange = 'transform, opacity';
+      el.style.willChange = 'transform';
     }
   };
   const onTouchMove = (e: RTouchEvent): void => {
@@ -471,30 +500,43 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
     const p = e.touches[0];
     const dy = Math.max(0, p.clientY - d.startY);
     d.dy = dy;
-    // 1:1 follow; fade slightly as it leaves so the mini bar underneath
-    // reads as the elements "rearranging" into it.
     el.style.transform = `translateY(${dy}px)`;
-    const progress = Math.min(1, dy / (window.innerHeight * 0.6));
-    el.style.opacity = String(1 - progress * 0.4);
+    updateLayers(dy);
   };
   const onTouchEnd = (): void => {
     const d = dragRef.current;
     const el = sheetRef.current;
     dragRef.current = null;
     if (!d || !el) return;
-    const threshold = window.innerHeight * 0.22;
-    // Pleasant spring for both snap directions.
-    el.style.transition =
-      'transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.32s cubic-bezier(0.32, 0.72, 0, 1)';
-    el.style.willChange = 'auto';
-    if (d.dy > threshold) {
-      // Snap down and off: the mini bar takes over.
-      el.style.transform = 'translateY(105%)';
-      el.style.opacity = '0';
-      window.setTimeout(() => onMinimize(), 300);
+    const H = window.innerHeight;
+    const miniY = H - MINI_H;
+    const sliverY = H - SLIVER_H;
+    const dy = d.dy;
+    // Snap to nearest: full, mini, or sliver.
+    let targetY: number;
+    let target: 'mini' | 'sliver' | null;
+    if (dy < miniY * 0.5) {
+      targetY = 0;
+      target = null; // snap back to full
+    } else if (dy < (miniY + sliverY) / 2) {
+      targetY = miniY;
+      target = 'mini';
     } else {
-      el.style.transform = 'translateY(0px)';
-      el.style.opacity = '1';
+      targetY = sliverY;
+      target = 'sliver';
+    }
+    const ease = 'cubic-bezier(0.32, 0.72, 0, 1)';
+    el.style.transition = `transform 0.35s ${ease}, opacity 0.35s ${ease}`;
+    el.style.willChange = 'auto';
+    el.style.transform = `translateY(${targetY}px)`;
+    updateLayers(targetY);
+    if (target) {
+      // Let the snap animation finish, then hand off to the persistent
+      // mini/sliver in App.tsx.
+      window.setTimeout(() => onMinimize(target), 340);
+    } else {
+      // Snapped back to full: reset layers.
+      window.setTimeout(() => updateLayers(0), 350);
     }
   };
 
@@ -676,19 +718,65 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
     );
   }
 
+  // Mini/sliver preview layers for the drag animation. These are visual only;
+  // the interactive MiniBar/SeekSliver in App.tsx take over after snap.
+  const dragMiniPreview = t ? (
+    <div className="h-[84px] w-full bg-zinc-950/95 backdrop-blur">
+      <div className="flex h-5 items-center px-4">
+        <div className="h-[3px] w-full rounded-full bg-white/18">
+          <div
+            className="h-full rounded-full bg-gold"
+            style={{
+              width: `${Math.min(100, Math.max(0, (player.positionNow() / (player.trackDurationMs || 1)) * 100))}%`,
+            }}
+          />
+        </div>
+      </div>
+      <div className="flex items-center gap-3 px-4 py-2">
+        <div className="h-11 w-11 shrink-0 rounded-md bg-white/10" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-base font-medium text-white">{t.name}</div>
+          <div className="truncate text-sm text-white/60">{t.artist}</div>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const dragSliverPreview = (
+    <div className="h-[2px] w-full bg-white/15">
+      <div
+        className="h-full bg-white/70"
+        style={{
+          width: `${t ? Math.min(100, Math.max(0, (player.positionNow() / (player.trackDurationMs || 1)) * 100)) : 0}%`,
+        }}
+      />
+    </div>
+  );
+
   return (
     <>
       <div
         ref={sheetRef}
-        className="relative flex h-full"
+        className="relative h-full overflow-hidden"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        <div ref={artPanelRef} className="h-full w-[55%] shrink-0 overflow-hidden">
-          {artPanel}
+        {/* Full UI layer — fades/scales out as we drag toward mini */}
+        <div ref={fullLayerRef} className="absolute inset-0 flex">
+          <div ref={artPanelRef} className="h-full w-[55%] shrink-0 overflow-hidden">
+            {artPanel}
+          </div>
+          <div className="h-full min-w-0 flex-1">{infoPanel}</div>
         </div>
-        <div className="h-full min-w-0 flex-1">{infoPanel}</div>
+        {/* Mini preview layer — top 84px, fades in approaching mini */}
+        <div ref={miniLayerRef} className="absolute inset-x-0 top-0 opacity-0">
+          {dragMiniPreview}
+        </div>
+        {/* Sliver preview layer — top 2px, fades in approaching sliver */}
+        <div ref={sliverLayerRef} className="absolute inset-x-0 top-0 opacity-0">
+          {dragSliverPreview}
+        </div>
       </div>
       {remoteOpen ? <RemoteSheet onClose={() => setRemoteOpen(false)} /> : null}
     </>
