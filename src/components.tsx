@@ -88,8 +88,10 @@ export async function clearArtCache(): Promise<void> {
     const client = getClient();
     const idxRaw = await persistRead(PART_INDEX);
     const idx: string[] = idxRaw ? (JSON.parse(idxRaw) as string[]) : [];
+    const heroIdxRaw = await persistRead(HERO_INDEX);
+    const heroIdx: string[] = heroIdxRaw ? (JSON.parse(heroIdxRaw) as string[]) : [];
     await Promise.all(
-      [...idx, PART_INDEX].map(k =>
+      [...idx, PART_INDEX, ...heroIdx, HERO_INDEX].map(k =>
         client.store.put({ key: k, value: '' }).catch(() => undefined),
       ),
     );
@@ -105,6 +107,13 @@ const PART_INDEX = 'finch:art:index';
 // + Albums + Library ≈ 60-85 unique) so reopening finds them warm. Was 48,
 // which a single playlist scroll (30 track arts) could evict.
 const PART_MAX = 96;
+// Hero tier: 512px Now Playing / detail art (40-80KB each) gets its own
+// budget so heroes survive restarts without evicting the tile budget 3-5x
+// faster. 24 slots ≈ 1.9MB worst case.
+const HERO_PREFIX = 'finch:hero:';
+const HERO_INDEX = 'finch:hero:index';
+const HERO_MAX = 24;
+const HERO_MAX_BYTES = 96 * 1024;
 
 function hashUrl(url: string): string {
   let h = 5381;
@@ -138,31 +147,34 @@ async function persistRead(key: string): Promise<string | null> {
 }
 
 // Write-through, fire-and-forget: a full/failed store must never break art.
-// Large heroes (512px detail art, ~40-80KB) are NOT persisted: they'd eat
-// the tile budget 3-5x faster, and detail headers already paint instantly
-// from their blur signature while the hero refetches.
+// Small art (tiles, ≤32KB) goes to the tile tier; large heroes (512px,
+// 40-80KB) go to the hero tier so they survive restarts too without eating
+// the tile budget.
 function persistWriteArt(url: string, bytes: Uint8Array): void {
-  if (bytes.length > 32 * 1024) return;
+  const isHero = bytes.length > 32 * 1024;
+  if (isHero && bytes.length > HERO_MAX_BYTES) return;
+  const prefix = isHero ? HERO_PREFIX : PART_PREFIX;
+  const indexKey = isHero ? HERO_INDEX : PART_INDEX;
+  const max = isHero ? HERO_MAX : PART_MAX;
   void (async () => {
     try {
-      const key = PART_PREFIX + hashUrl(url);
       const client = getClient();
+      const key = prefix + hashUrl(url);
       await client.store.put({ key, value: bytesToB64(bytes) });
-      const idxRaw = await persistRead(PART_INDEX);
+      const idxRaw = await persistRead(indexKey);
       const idx: string[] = idxRaw ? (JSON.parse(idxRaw) as string[]) : [];
       const at = idx.indexOf(key);
       if (at >= 0) idx.splice(at, 1);
       idx.push(key);
-      while (idx.length > PART_MAX) {
+      while (idx.length > max) {
         const old = idx.shift()!;
         if (old !== key) void client.store.put({ key: old, value: '' }).catch(() => {});
       }
-      await client.store.put({ key: PART_INDEX, value: JSON.stringify(idx) });
+      await client.store.put({ key: indexKey, value: JSON.stringify(idx) });
     } catch {
-      // ignore: memory tier still works
+      // A failed persist must never break art.
     }
-  })();
-}
+  })();}
 
 // ------------------------------------------------------------------
 // Blur-signature tier: a 16x16 RGB snapshot (~1KB base64) per item, stashed
@@ -259,7 +271,10 @@ export async function readBlurSig(itemIds: (string | null | undefined)[]): Promi
 async function fetchArtNetwork(url: string): Promise<string | null> {
   // Persistent tier before the network: a cold start reuses art it saw
   // in a previous session without touching the Bluetooth link at all.
-  const saved = await persistRead(PART_PREFIX + hashUrl(url));
+  // Checks the tile tier first, then the hero tier.
+  const saved =
+    (await persistRead(PART_PREFIX + hashUrl(url))) ??
+    (await persistRead(HERO_PREFIX + hashUrl(url)));
   if (saved) {
     // A concurrent fetch for this URL may have populated the memory tier
     // while we awaited the store: reuse its blob instead of minting (and
