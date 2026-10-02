@@ -1350,6 +1350,18 @@ export class PlaybackEngine {
     }
     try {
       const sessions = await remote.discover();
+      // Saved session is stale (new session id after app restart): prefer the
+      // same client on the same device, even if it's not playing right now.
+      // This is the "last played device" — don't default to local Finch.
+      if (saved?.client) {
+        const match =
+          sessions.find(s => !s.offline && s.client === saved.client && s.deviceName === saved.deviceName) ??
+          sessions.find(s => !s.offline && s.client === saved.client);
+        if (match) {
+          await this.enableRemote(match.id, match.client, match.deviceName);
+          return;
+        }
+      }
       const last = sessions.find(s => s.nowPlayingName);
       if (last) await this.enableRemote(last.id, last.client, last.deviceName);
     } catch {
