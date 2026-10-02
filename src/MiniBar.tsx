@@ -1,53 +1,71 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef } from 'react';
 import { Artwork, Icon, IconBtn, ProgressBar, useArt, usePlayer } from './components';
 import { player } from './player';
 
 export type MiniState = 'hidden' | 'mini' | 'sliver';
 
-// The 2px progress sliver at the very bottom. Tap (or swipe up) expands to
-// the mini bar.
+// The 2px sliver: the exact same ProgressBar (gold fill, sheen, RAF-driven),
+// no halo dot, clipped to 2px. Tap or swipe up expands to the mini bar.
 export function SeekSliver({ onExpand }: { onExpand: () => void }) {
   usePlayer();
-  const [, setTick] = useState(0);
   const t = player.current();
-  const playing = player.intentPlaying && !player.loading;
-
-  useEffect(() => {
-    if (!playing) return;
-    const id = window.setInterval(() => setTick(x => x + 1), 500);
-    return () => window.clearInterval(id);
-  }, [playing, t?.id]);
+  const startY = useRef<number | null>(null);
+  const sliverRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startY: number; dy: number } | null>(null);
 
   if (!t) return null;
-  const dur = player.trackDurationMs || t.durationMs || 0;
-  const pos = Math.min(player.positionNow(), dur);
-  const ratio = dur > 0 ? pos / dur : 0;
 
-  const startY = useRef<number | null>(null);
+  const onTouchStart = (e: React.TouchEvent): void => {
+    const p = e.touches[0];
+    startY.current = p.clientY;
+    dragRef.current = { startY: p.clientY, dy: 0 };
+    const el = sliverRef.current;
+    if (el) {
+      el.style.transition = 'none';
+    }
+  };
+  const onTouchMove = (e: React.TouchEvent): void => {
+    const d = dragRef.current;
+    const el = sliverRef.current;
+    if (!d || !el) return;
+    const dy = e.touches[0].clientY - d.startY;
+    d.dy = dy;
+    // Only follow upward drags; downward does nothing (already minimal).
+    if (dy < 0) el.style.transform = `translateY(${dy}px)`;
+  };
+  const onTouchEnd = (): void => {
+    const d = dragRef.current;
+    const el = sliverRef.current;
+    dragRef.current = null;
+    startY.current = null;
+    if (!d || !el) return;
+    const ease = 'cubic-bezier(0.32, 0.72, 0, 1)';
+    el.style.transition = `transform 0.28s ${ease}`;
+    if (d.dy < -40) {
+      el.style.transform = 'translateY(-16px)';
+      el.style.opacity = '0';
+      window.setTimeout(() => onExpand(), 260);
+    } else {
+      el.style.transform = 'translateY(0px)';
+    }
+  };
+
   return (
     <div
+      ref={sliverRef}
       role="button"
       aria-label="Expand mini player"
       onClick={onExpand}
-      onTouchStart={e => {
-        startY.current = e.touches[0].clientY;
-      }}
-      onTouchEnd={e => {
-        const s = startY.current;
-        startY.current = null;
-        if (s === null) return;
-        const dy = e.changedTouches[0].clientY - s;
-        // swipe up expands too
-        if (s - e.changedTouches[0].clientY > 40) onExpand();
-        else if (Math.abs(dy) < 10) onExpand();
-      }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
       className="absolute inset-x-0 bottom-0 z-30 h-4 cursor-pointer"
     >
-      <div className="absolute inset-x-0 bottom-0 h-[2px] bg-white/15">
-        <div
-          className="h-full bg-white/70 transition-[width] duration-500"
-          style={{ width: `${Math.round(ratio * 100)}%` }}
-        />
+      {/* Clip the 3px ProgressBar track to 2px — same gold, sheen, animation */}
+      <div className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden">
+        <div className="h-[3px] w-full">
+          <ProgressBar onSeek={ms => void player.seekTo(ms)} dot={false} />
+        </div>
       </div>
     </div>
   );
@@ -80,25 +98,32 @@ export function MiniBar({ onExpand, onCollapse }: { onExpand: () => void; onColl
     const el = barRef.current;
     if (!d || !el) return;
     const p = e.touches[0];
-    const dy = Math.max(0, p.clientY - d.startY);
+    const dy = p.clientY - d.startY;
     d.dy = dy;
+    // Drag down → collapse to sliver; drag up → expand to full.
+    // Follow finger 1:1 in both directions.
     el.style.transform = `translateY(${dy}px)`;
-    const progress = Math.min(1, dy / 120);
-    el.style.opacity = String(1 - progress * 0.6);
+    const progress = Math.min(1, Math.abs(dy) / 120);
+    el.style.opacity = String(1 - progress * 0.4);
   };
   const onTouchEnd = (): void => {
     const d = dragRef.current;
     const el = barRef.current;
     dragRef.current = null;
     if (!d || !el) return;
-    el.style.transition =
-      'transform 0.28s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.28s cubic-bezier(0.32, 0.72, 0, 1)';
+    const ease = 'cubic-bezier(0.32, 0.72, 0, 1)';
+    el.style.transition = `transform 0.28s ${ease}, opacity 0.28s ${ease}`;
     el.style.willChange = 'auto';
     if (d.dy > 50) {
-      // Snap down to the sliver.
+      // Dragged down: snap to sliver.
       el.style.transform = 'translateY(100%)';
       el.style.opacity = '0';
       window.setTimeout(() => onCollapse(), 260);
+    } else if (d.dy < -50) {
+      // Dragged up: expand to full Now Playing.
+      el.style.transform = 'translateY(-20px)';
+      el.style.opacity = '0';
+      window.setTimeout(() => onExpand(), 260);
     } else {
       el.style.transform = 'translateY(0px)';
       el.style.opacity = '1';
@@ -113,38 +138,41 @@ export function MiniBar({ onExpand, onCollapse }: { onExpand: () => void; onColl
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      {/* 20px seekbar strip on top — identical to fullscreen ProgressBar */}
-      <div className="flex h-5 w-full items-center px-4">
-        <ProgressBar onSeek={ms => void player.seekTo(ms)} />
-      </div>
-      {/* transport row */}
-      <div
-        className="flex items-center gap-3 bg-zinc-950/95 px-4 py-2 backdrop-blur"
-        onClick={e => {
-          // tap outside buttons expands; buttons stop propagation
-          if ((e.target as HTMLElement).closest('button')) return;
-          onExpand();
-        }}
-      >
-        <Artwork
-          src={art?.trackArt(t) ?? null}
-          size={44}
-          rounded="rounded-md"
-        />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-base font-medium text-white">{t.name}</div>
-          <div className="truncate text-sm text-white/60">{t.artist}</div>
+      {/* Semi-transparent dark tint covering the whole bar, seekbar included */}
+      <div className="bg-black/55 backdrop-blur-md">
+        {/* 20px seekbar strip on top — identical ProgressBar, no halo dot */}
+        <div className="flex h-5 w-full items-center px-4">
+          <ProgressBar onSeek={ms => void player.seekTo(ms)} dot={false} />
         </div>
-        <IconBtn
-          size={48}
-          label={playing ? 'Pause' : 'Play'}
-          onClick={() => void player.toggle()}
+        {/* transport row */}
+        <div
+          className="flex items-center gap-3 px-4 py-2"
+          onClick={e => {
+            // tap outside buttons expands; buttons stop propagation
+            if ((e.target as HTMLElement).closest('button')) return;
+            onExpand();
+          }}
         >
-          <Icon name={playing ? 'pause' : 'play'} size={24} />
-        </IconBtn>
-        <IconBtn size={48} label="Next" onClick={() => void player.next()}>
-          <Icon name="next" size={24} />
-        </IconBtn>
+          <Artwork
+            src={art?.trackArt(t) ?? null}
+            size={44}
+            rounded="rounded-md"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-base font-medium text-white">{t.name}</div>
+            <div className="truncate text-sm text-white/60">{t.artist}</div>
+          </div>
+          <IconBtn
+            size={48}
+            label={playing ? 'Pause' : 'Play'}
+            onClick={() => void player.toggle()}
+          >
+            <Icon name={playing ? 'pause' : 'play'} size={24} />
+          </IconBtn>
+          <IconBtn size={48} label="Next" onClick={() => void player.next()}>
+            <Icon name="next" size={24} />
+          </IconBtn>
+        </div>
       </div>
     </div>
   );

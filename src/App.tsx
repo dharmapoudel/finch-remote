@@ -260,6 +260,7 @@ export default function App() {
   // restores this so back() from the return view pops to its parent
   // instead of being a no-op on a single-item stack.
   const stackBeforeNpRef = useRef<View[] | null>(null);
+  const pillRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setCredsState('loading');
@@ -671,7 +672,16 @@ export default function App() {
       case 'queue':
         return <Queue {...props} />;
       case 'nowplaying':
-        return <NowPlaying {...props} onMinimize={minimizeNowPlaying} />;
+        return (
+          <NowPlaying
+            {...props}
+            onMinimize={minimizeNowPlaying}
+            onDragProgress={p => {
+              const el = pillRef.current;
+              if (el) el.style.opacity = String(1 - p);
+            }}
+          />
+        );
       case 'setup':
         return <Setup {...props} onSaved={() => void load()} />;
     }
@@ -716,7 +726,9 @@ export default function App() {
         {/* Queue handle: only on the fullscreen Now Playing screen. Hidden
             everywhere else (the mini bar / sliver own the bottom edge there). */}
         {current && view.name === 'nowplaying' ? (
-          <QueueHandle onOpen={() => setQueueOpen(true)} />
+          <div ref={pillRef} className="absolute bottom-1 left-1/2 z-20 -translate-x-1/2">
+            <QueueHandle onOpen={() => setQueueOpen(true)} />
+          </div>
         ) : null}
         {/* Mini player: shown when Now Playing was dragged down. Hidden while
             the full Now Playing screen is open. */}

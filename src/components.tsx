@@ -973,7 +973,13 @@ export function Ghost({
   );
 }
 
-export function ProgressBar({ onSeek }: { onSeek: (ms: number) => void }) {
+export function ProgressBar({
+  onSeek,
+  dot = true,
+}: {
+  onSeek: (ms: number) => void;
+  dot?: boolean;
+}) {
   usePlayer();
   const barRef = useRef<HTMLDivElement>(null);
   const [, force] = useState(0);
@@ -1046,7 +1052,7 @@ export function ProgressBar({ onSeek }: { onSeek: (ms: number) => void }) {
             )}
           </div>
         </div>
-        {player.intentPlaying && (
+        {player.intentPlaying && dot && (
           <div
             className="pointer-events-none absolute top-1/2 h-3 w-3 animate-halo rounded-full bg-goldlight"
             style={{ left: `${ratio * 100}%` }}

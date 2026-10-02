@@ -383,7 +383,11 @@ export default function NowPlaying({
   jf,
   nav,
   onMinimize,
-}: ViewProps & { onMinimize: (target?: 'mini' | 'sliver') => void }) {
+  onDragProgress,
+}: ViewProps & {
+  onMinimize: (target?: 'mini' | 'sliver') => void;
+  onDragProgress?: (progress: number) => void;
+}) {
   const playerRev = usePlayer();
   const art = useArt();
   const portrait = usePortrait();
@@ -502,6 +506,8 @@ export default function NowPlaying({
     d.dy = dy;
     el.style.transform = `translateY(${dy}px)`;
     updateLayers(dy);
+    // Fade the queue pill out as we drag down (it lives in App.tsx).
+    onDragProgress?.(Math.min(1, dy / (window.innerHeight * 0.3)));
   };
   const onTouchEnd = (): void => {
     const d = dragRef.current;
@@ -535,7 +541,8 @@ export default function NowPlaying({
       // mini/sliver in App.tsx.
       window.setTimeout(() => onMinimize(target), 340);
     } else {
-      // Snapped back to full: reset layers.
+      // Snapped back to full: reset layers and restore the queue pill.
+      onDragProgress?.(0);
       window.setTimeout(() => updateLayers(0), 350);
     }
   };
