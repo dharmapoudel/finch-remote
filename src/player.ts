@@ -8,7 +8,7 @@ import { getClient } from './client';
 import { JellyfinClient, JellyfinError, type Track } from './jellyfin';
 import { RemoteControl, type RemoteSessionInfo, type RemoteState } from './remote';
 import { deferArtLoads } from './netgate';
-import { JellyfinSocket } from './jfws';
+import { JellyfinSocket, findRemoteState } from './jfws';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
@@ -1108,15 +1108,16 @@ export class PlaybackEngine {
     }
   }
 
-  /** Open the WebSocket push channel for instant remote updates. The 15s
-   *  poll stays as fallback; the socket just makes track switches instant.
-   *
-   *  DISABLED 2026-10-01: the phone's wsOpen doesn't reliably deliver the
-   *  15KB Sessions pushes — the UI often doesn't update and the message
-   *  volume drops the Bluetooth link. Polling (1.1.44) was more stable.
-   *  Kept for future debugging; re-enable when the companion WS is fixed. */
+  /** Open the WebSocket (no subscription yet — on-demand pushes only, to
+   *  avoid the 15KB background flood). The 15s poll stays as fallback. */
   private openRemoteSocket(): void {
-    // Disabled: see above.
+    this.closeRemoteSocket();
+    if (!this.jf || !this.remoteSessionId) return;
+    const sock = new JellyfinSocket();
+    this.jfSocket = sock;
+    void sock.connect(this.jf.server, this.jf.token).catch(() => {
+      if (this.jfSocket === sock) this.jfSocket = null;
+    });
   }
 
   private closeRemoteSocket(): void {
@@ -1178,14 +1179,48 @@ export class PlaybackEngine {
         return;
       }
       attempts++;
-      // Light check: single-session fetch, not the full /Sessions list.
-      // Half the Bluetooth traffic of the old 4-poll burst.
+      // Try the WebSocket on-demand push first (instant, no poll wait).
+      // Falls back to the light HTTP single-session fetch.
       let st: RemoteState | null = null;
-      try {
-        const sid = this.remoteSessionId;
-        if (this.jf && sid) st = await new RemoteControl(this.jf).stateOne(sid);
-      } catch {
-        // Transport failure — try once more, then give up quietly.
+      const sock = this.jfSocket;
+      const sid = this.remoteSessionId;
+      if (sock?.isOpen && sid) {
+        try {
+          const sessions = await sock.requestSessions(2000);
+          if (gen !== this.trackSwitchGen || !this.remoteActive) return;
+          if (sessions) {
+            const wsSt = findRemoteState(sessions, sid);
+            if (wsSt?.trackId) {
+              st = {
+                track: {
+                  id: wsSt.trackId,
+                  name: wsSt.trackName ?? 'Unknown track',
+                  albumId: wsSt.albumId,
+                  album: wsSt.album,
+                  artist: wsSt.artist,
+                  durationMs: wsSt.durationMs,
+                  isFavorite: wsSt.isFavorite,
+                  playCount: 0,
+                  imageTag: wsSt.imageTag,
+                  albumImageTag: wsSt.albumImageTag,
+                },
+                positionMs: wsSt.positionMs,
+                paused: wsSt.paused,
+                client: this.remoteClient,
+                deviceName: this.remoteDevice,
+              };
+            }
+          }
+        } catch {
+          // WS failed — fall through to HTTP
+        }
+      }
+      if (!st && this.jf && sid) {
+        try {
+          st = await new RemoteControl(this.jf).stateOne(sid);
+        } catch {
+          // Transport failure — try once more, then give up quietly.
+        }
       }
       if (gen !== this.trackSwitchGen || !this.remoteActive) return;
       if (st?.track) {

@@ -1,11 +1,10 @@
-// Persistent WebSocket to Jellyfin's /socket through the phone companion.
-// The server pushes `Sessions` messages when any session's state changes,
-// so Finch learns about remote track switches instantly instead of polling.
+// WebSocket to Jellyfin's /socket through the phone companion, used
+// ON-DEMAND: the socket stays open, but we only subscribe to `Sessions`
+// pushes when we need an update (after a remote command). This avoids the
+// constant 15KB background flood that drops the Bluetooth link.
 //
 // Auth: header-based (`Authorization: MediaBrowser Token="..."`) plus the
-// `deviceId` query param. The token alone (no deviceId) gets keepalives but
-// no session data — the server can't associate the socket with a session.
-// Verified against Jellyfin 12.1.0 2026-10-01.
+// `deviceId` query param. Verified against Jellyfin 12.1.0 2026-10-01.
 
 import { getClient } from './client';
 import { finchDeviceId } from './jellyfin';
@@ -33,7 +32,7 @@ function normalizeWsTrack(item: any): WsRemoteState | null {
     album: item.Album ?? '',
     artist: (item.Artists ?? []).join(', '),
     durationMs: Math.round((item.RunTimeTicks ?? 0) / 10_000),
-    positionMs: 0, // filled from PlayState by the caller
+    positionMs: 0,
     paused: true,
     isFavorite: item.UserData?.IsFavorite ?? false,
     imageTag: item.ImageTags?.Primary ?? item.AlbumPrimaryImageTag ?? null,
@@ -41,31 +40,31 @@ function normalizeWsTrack(item: any): WsRemoteState | null {
   };
 }
 
+export function findRemoteState(sessions: any[], sessionId: string): WsRemoteState | null {
+  const s = sessions.find(x => x?.Id === sessionId);
+  if (!s) return null;
+  const st = normalizeWsTrack(s.NowPlayingItem);
+  if (!st) return null;
+  st.positionMs = Math.round(((s.PlayState?.PositionTicks ?? 0) as number) / 10_000);
+  st.paused = (s.PlayState?.IsPaused as boolean) ?? true;
+  return st;
+}
+
 export class JellyfinSocket {
   private connectionId: string | null = null;
   private unsubs: (() => void)[] = [];
   private keepAliveTimer: number | null = null;
-  private reconnectTimer: number | null = null;
   private closed = false;
-  private reconnectDelay = 2000;
-
-  /** Called with the raw session list on every `Sessions` push. */
-  onSessions: ((sessions: any[]) => void) | null = null;
-  /** Called when the socket drops (for fallback/reconnect UI). */
-  onClose: (() => void) | null = null;
+  private pendingResolve: ((sessions: any[] | null) => void) | null = null;
+  private pendingTimer: number | null = null;
 
   get isOpen(): boolean {
     return this.connectionId !== null;
   }
 
+  /** Open the socket (no subscription yet). Idempotent. */
   async connect(serverUrl: string, token: string): Promise<void> {
-    this.closed = false;
-    this.reconnectDelay = 2000;
-    await this.open(serverUrl, token);
-  }
-
-  private async open(serverUrl: string, token: string): Promise<void> {
-    if (this.closed) return;
+    if (this.connectionId || this.closed) return;
     const client = getClient();
     const deviceId = await finchDeviceId();
     const connectionId = crypto.randomUUID();
@@ -75,10 +74,11 @@ export class JellyfinSocket {
       this.handleMessage(msg.frame.data);
     });
     const offClosed = client.net.onWsClosed(msg => {
-      if ((msg as any).connectionId !== connectionId) return;
+      if (msg.connectionId !== connectionId) return;
       this.handleDrop();
     });
-    const offErr = client.net.onWsErrorEvent(() => {
+    const offErr = client.net.onWsErrorEvent(msg => {
+      if (msg.connectionId !== connectionId) return;
       this.handleDrop();
     });
     this.unsubs = [offMsg, offClosed, offErr];
@@ -96,24 +96,16 @@ export class JellyfinSocket {
         { timeoutMs: 12000 },
       );
     } catch {
-      this.handleDrop();
-      return;
+      this.cleanup();
+      throw new Error('wsOpen failed');
     }
     if (!result.ok) {
-      this.handleDrop();
-      return;
+      this.cleanup();
+      throw new Error('wsOpen rejected');
     }
 
     this.connectionId = connectionId;
-    // Subscribe to session pushes. Data "0,1500" = initial dump (start 0, take 1500).
-    await client.net
-      .wsSend({
-        connectionId,
-        frame: { type: 'text', data: JSON.stringify({ MessageType: 'SessionsStart', Data: '0,1500' }) },
-      })
-      .catch(() => this.handleDrop());
-
-    // Answer ForceKeepAlive (~48s) so the server doesn't mark us lost at 60s.
+    // Keepalive so the server doesn't mark us lost (ForceKeepAlive ~48s).
     if (this.keepAliveTimer !== null) window.clearInterval(this.keepAliveTimer);
     this.keepAliveTimer = window.setInterval(() => {
       if (this.connectionId) {
@@ -127,6 +119,43 @@ export class JellyfinSocket {
     }, 30000);
   }
 
+  /**
+   * Request one `Sessions` push. Subscribes, waits for the next push (or
+   * timeout), then unsubscribes. Resolves with the session list, or null on
+   * timeout/failure (caller falls back to HTTP poll).
+   */
+  async requestSessions(timeoutMs = 2500): Promise<any[] | null> {
+    if (!this.connectionId || this.pendingResolve) return null;
+
+    return new Promise(resolve => {
+      this.pendingResolve = resolve;
+      this.pendingTimer = window.setTimeout(() => {
+        this.pendingTimer = null;
+        const r = this.pendingResolve;
+        this.pendingResolve = null;
+        void this.send({ MessageType: 'SessionsStop' }).catch(() => {});
+        r?.(null);
+      }, timeoutMs);
+      void this.send({ MessageType: 'SessionsStart', Data: '0,1500' }).catch(() => {
+        if (this.pendingTimer !== null) {
+          window.clearTimeout(this.pendingTimer);
+          this.pendingTimer = null;
+        }
+        const r = this.pendingResolve;
+        this.pendingResolve = null;
+        r?.(null);
+      });
+    });
+  }
+
+  private async send(msg: Record<string, unknown>): Promise<void> {
+    if (!this.connectionId) return;
+    await getClient().net.wsSend({
+      connectionId: this.connectionId,
+      frame: { type: 'text', data: JSON.stringify(msg) },
+    });
+  }
+
   private handleMessage(data: string): void {
     let msg: any;
     try {
@@ -134,18 +163,38 @@ export class JellyfinSocket {
     } catch {
       return;
     }
-    if (msg.MessageType === 'Sessions' && Array.isArray(msg.Data)) {
-      this.onSessions?.(msg.Data);
+    if (msg.MessageType === 'Sessions' && Array.isArray(msg.Data) && this.pendingResolve) {
+      if (this.pendingTimer !== null) {
+        window.clearTimeout(this.pendingTimer);
+        this.pendingTimer = null;
+      }
+      const r = this.pendingResolve;
+      this.pendingResolve = null;
+      // Unsubscribe immediately: we got what we came for.
+      void this.send({ MessageType: 'SessionsStop' }).catch(() => {});
+      r(msg.Data);
     }
-    // ForceKeepAlive is answered by the 30s interval; nothing to do here.
   }
 
   private handleDrop(): void {
+    this.cleanup();
+  }
+
+  private cleanup(): void {
+    if (this.pendingTimer !== null) {
+      window.clearTimeout(this.pendingTimer);
+      this.pendingTimer = null;
+    }
+    if (this.pendingResolve) {
+      const r = this.pendingResolve;
+      this.pendingResolve = null;
+      r(null);
+    }
     if (this.connectionId) {
       const cid = this.connectionId;
       this.connectionId = null;
       try {
-        void getClient().net.wsClose({ connectionId: cid, code: 1000, reason: 'client close' }).catch(() => {});
+        void getClient().net.wsClose({ connectionId: cid, code: 1000, reason: 'cleanup' }).catch(() => {});
       } catch {
         // ignore
       }
@@ -162,37 +211,10 @@ export class JellyfinSocket {
       window.clearInterval(this.keepAliveTimer);
       this.keepAliveTimer = null;
     }
-    this.onClose?.();
-    // Reconnect with backoff unless explicitly closed.
-    if (!this.closed) {
-      if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
-      const delay = this.reconnectDelay;
-      this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
-      this.reconnectTimer = window.setTimeout(() => {
-        this.reconnectTimer = null;
-        // The caller re-connects via player.ts (it holds serverUrl/token).
-        this.onClose?.();
-      }, delay);
-    }
   }
 
   close(): void {
     this.closed = true;
-    if (this.reconnectTimer !== null) {
-      window.clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.handleDrop();
+    this.cleanup();
   }
-}
-
-/** Extract the remote session's state from a `Sessions` push. */
-export function findRemoteState(sessions: any[], sessionId: string): WsRemoteState | null {
-  const s = sessions.find(x => x?.Id === sessionId);
-  if (!s) return null;
-  const st = normalizeWsTrack(s.NowPlayingItem);
-  if (!st) return null;
-  st.positionMs = Math.round(((s.PlayState?.PositionTicks ?? 0) as number) / 10_000);
-  st.paused = (s.PlayState?.IsPaused as boolean) ?? true;
-  return st;
 }
