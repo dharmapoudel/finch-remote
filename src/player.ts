@@ -69,6 +69,11 @@ const ABANDON_AFTER_PAUSE_MS = 60_000;
 // 10s was the fastest network poll of any Bridgething app (next: 5 min).
 const REMOTE_POLL_PLAYING_MS = 15000;
 const REMOTE_POLL_IDLE_MS = 60000;
+// Remote playback latency compensation: the position reported by the phone
+// (via poll or WS push) is consistently ~2s behind the actual playback
+// position — phone → server → push → Bluetooth → Car Thing. Added to the
+// extrapolated position so the seek bar and lyrics stay in sync.
+const REMOTE_LATENCY_MS = 2000;
 // After we send a remote command our optimistic local state wins over poll
 // data for this long, so the UI doesn't flicker back mid-flight.
 const REMOTE_CMD_SETTLE_MS = 2000;
@@ -250,7 +255,11 @@ export class PlaybackEngine {
 
   positionNow(): number {
     if (this.intentPlaying && this.positionMs >= 0) {
-      return Math.min(this.positionMs + (Date.now() - this.positionAt), this.durationMs || Infinity);
+      const base = this.positionMs + (Date.now() - this.positionAt);
+      // Remote positions arrive ~2s stale; compensate so the seek bar and
+      // lyrics track the actual playback. Local playback needs no offset.
+      const offset = this.remoteActive ? REMOTE_LATENCY_MS : 0;
+      return Math.min(base + offset, this.durationMs || Infinity);
     }
     return this.positionMs;
   }
