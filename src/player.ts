@@ -8,7 +8,7 @@ import { getClient } from './client';
 import { JellyfinClient, JellyfinError, type Track } from './jellyfin';
 import { RemoteControl, type RemoteSessionInfo, type RemoteState } from './remote';
 import { deferArtLoads } from './netgate';
-import { JellyfinSocket, findRemoteState } from './jfws';
+import { JellyfinSocket } from './jfws';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
@@ -1104,74 +1104,14 @@ export class PlaybackEngine {
   }
 
   /** Open the WebSocket push channel for instant remote updates. The 15s
-   *  poll stays as fallback; the socket just makes track switches instant. */
+   *  poll stays as fallback; the socket just makes track switches instant.
+   *
+   *  DISABLED 2026-10-01: the phone's wsOpen doesn't reliably deliver the
+   *  15KB Sessions pushes — the UI often doesn't update and the message
+   *  volume drops the Bluetooth link. Polling (1.1.44) was more stable.
+   *  Kept for future debugging; re-enable when the companion WS is fixed. */
   private openRemoteSocket(): void {
-    this.closeRemoteSocket();
-    if (!this.jf || !this.remoteSessionId) return;
-    const sock = new JellyfinSocket();
-    const sid = this.remoteSessionId;
-    sock.onSessions = sessions => {
-      if (!this.remoteActive || this.remoteSessionId !== sid) return;
-      const st = findRemoteState(sessions, sid);
-      if (!st?.trackId) return;
-      const cur = this.current();
-      if (cur && cur.id === st.trackId) {
-        // Same track: adopt position/clock from the push (finer than the
-        // 15s poll for synced lyrics).
-        this.positionMs = st.positionMs;
-        this.positionAt = Date.now();
-        if (this.intentPlaying === st.paused) {
-          this.intentPlaying = !st.paused;
-          this.emit();
-        }
-        return;
-      }
-      // Track switched — update immediately, no poll wait.
-      deferArtLoads(3000);
-      const track: Track = {
-        id: st.trackId,
-        name: st.trackName ?? 'Unknown track',
-        albumId: st.albumId,
-        album: st.album,
-        artist: st.artist,
-        durationMs: st.durationMs,
-        isFavorite: st.isFavorite,
-        playCount: 0,
-        imageTag: st.imageTag,
-        albumImageTag: st.albumImageTag,
-      };
-      const qi = this.queue.findIndex(t => t.id === track.id);
-      if (qi >= 0) this.index = qi;
-      else {
-        this.queue = [track];
-        this.index = 0;
-      }
-      this.durationMs = track.durationMs;
-      this.positionMs = st.positionMs;
-      this.positionAt = Date.now();
-      this.intentPlaying = !st.paused;
-      this.loading = false;
-      this.error = null;
-      this.emit();
-    };
-    sock.onClose = () => {
-      // Socket dropped: the 15s poll covers us until it reconnects.
-      // Reconnect with the same credentials.
-      if (!this.remoteActive || this.jfSocket !== sock) return;
-      const jf = this.jf;
-      const rsid = this.remoteSessionId;
-      if (!jf || !rsid) return;
-      window.setTimeout(() => {
-        if (this.remoteActive && this.remoteSessionId === rsid && this.jf === jf) {
-          this.openRemoteSocket();
-        }
-      }, 3000);
-    };
-    this.jfSocket = sock;
-    void sock.connect(this.jf.server, this.jf.token).catch(() => {
-      // WS unavailable: polling continues as before.
-      if (this.jfSocket === sock) this.jfSocket = null;
-    });
+    // Disabled: see above.
   }
 
   private closeRemoteSocket(): void {
