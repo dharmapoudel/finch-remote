@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { trackActions } from '../actions';
-import { cached, stickyGet, stickySet } from '../cache';
+import { bust, cached, stickyGet, stickySet } from '../cache';
 import {
   Artwork,
   AuthError,
@@ -86,6 +86,15 @@ function SkeletonHome() {
 export default function Home({ jf, nav, openMenu }: ViewProps) {
   const art = useArt();
   usePlayer();
+  // Always refetch Recent tracks when Home becomes visible: the user may
+  // have just played something (via Now Playing or directly in the phone
+  // app), and the 5-minute cache would show stale rails. Bust synchronously
+  // on first render so useLoad's effect (below) fetches fresh.
+  const didBust = useRef(false);
+  if (!didBust.current) {
+    didBust.current = true;
+    bust('home:recent');
+  }
   // The track Finch is actually playing right now (adopted on app start
   // when the phone kept playing across a restart): highlight its tile in
   // Continue listening, and tapping it opens Now Playing without

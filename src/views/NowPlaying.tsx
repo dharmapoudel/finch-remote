@@ -384,6 +384,14 @@ export default function NowPlaying({ jf, nav, onMinimize }: ViewProps & { onMini
   const art = useArt();
   const portrait = usePortrait();
   const [remoteOpen, setRemoteOpen] = useState(false);
+  // Bidirectional sync: while Now Playing is visible, poll the remote for
+  // external changes (track switched directly in the phone app) every 3s.
+  // The background 15s tick is too slow when the user is watching.
+  useEffect(() => {
+    player.refreshRemoteNow();
+    const t = window.setInterval(() => player.refreshRemoteNow(), 3000);
+    return () => window.clearInterval(t);
+  }, []);
   // Auto-prompt for a playback device when the player needs one (no remote
   // found on startup and local audio not explicitly allowed).
   useEffect(() => {

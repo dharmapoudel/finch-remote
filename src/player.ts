@@ -1241,6 +1241,13 @@ export class PlaybackEngine {
     window.setTimeout(tick, 800);
   }
 
+  /** Public: trigger an immediate remote poll (e.g. when Now Playing becomes
+   *  visible — the user expects bidirectional updates without waiting for
+   *  the 15s tick). Safe to call anytime; no-ops if remote isn't active. */
+  refreshRemoteNow(): void {
+    if (this.remoteActive) void this.pollRemote();
+  }
+
   private async pollRemote(): Promise<void> {
     const gen = this.remoteGen;
     let sid = this.remoteSessionId;
