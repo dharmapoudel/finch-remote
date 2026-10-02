@@ -37,6 +37,12 @@ const queues: Record<Lane, Task[]> = { net: [], art: [] };
 const active: Record<Lane, number> = { net: 0, art: 0 };
 const maxFor: Record<Lane, number> = { net: MAX_NET, art: MAX_ART };
 
+// Hard client-side timeout for gated tasks. The daemon's net.fetch is
+// supposed to honor timeoutMs, but if it hangs (Bluetooth stall), the gate
+// slot leaks forever and all subsequent requests queue behind it. This
+// guarantees the slot is freed.
+const GATE_HARD_TIMEOUT_MS = 20_000;
+
 function pumpLane(lane: Lane): void {
   const q = queues[lane];
   while (active[lane] < maxFor[lane] && q.length) {
@@ -48,13 +54,27 @@ function pumpLane(lane: Lane): void {
       continue;
     }
     active[lane]++;
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      active[lane]--;
+      t.reject(new Error('gatedNet hard timeout'));
+      pumpLane(lane);
+    }, GATE_HARD_TIMEOUT_MS);
     t.run().then(
       v => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         active[lane]--;
         t.resolve(v);
         pumpLane(lane);
       },
       e => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         active[lane]--;
         t.reject(e);
         pumpLane(lane);

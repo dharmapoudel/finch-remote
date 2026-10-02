@@ -174,10 +174,14 @@ export class PlaybackEngine {
     if (this.remotePollTimer !== null) window.clearInterval(this.remotePollTimer);
     const playing = this.intentPlaying;
     this.lastArmedPlaying = playing;
-    this.remotePollTimer = window.setInterval(
-      () => void this.pollRemote(),
-      playing ? REMOTE_POLL_PLAYING_MS : REMOTE_POLL_IDLE_MS,
-    );
+    // When the link is down, poll fast (3s) to detect recovery quickly.
+    // Otherwise use the normal adaptive cadence (15s playing / 60s idle).
+    const interval = this.remoteLinkDown
+      ? 3_000
+      : playing
+        ? REMOTE_POLL_PLAYING_MS
+        : REMOTE_POLL_IDLE_MS;
+    this.remotePollTimer = window.setInterval(() => void this.pollRemote(), interval);
   }
   private remoteGen = 0;
   private lastRemoteCmdAt = 0;
@@ -1261,9 +1265,12 @@ export class PlaybackEngine {
     }
     this.remoteTransportFails = 0;
     if (this.remoteLinkDown) {
-      // Link is back: clear the outage state; the poll below re-syncs.
+      // Link is back: clear the outage state and return to the normal poll
+      // cadence (we've been polling fast for recovery); the poll below
+      // re-syncs.
       this.remoteLinkDown = false;
       if (this.error === 'The phone link dropped.') this.error = null;
+      this.armRemotePoll();
     }
     if (!st) {
       // The session id is stale — the client probably reconnected under a new
@@ -1435,7 +1442,16 @@ export class PlaybackEngine {
       .command(sid, cmd, seekMs)
       .catch((e: unknown) => {
         const serverSaid = e instanceof JellyfinError && e.status !== 0;
-        this.error = serverSaid ? 'Could not reach the player.' : 'The phone link dropped.';
+        if (!serverSaid) {
+          // Transport failure: the phone didn't answer. Mark the link down
+          // NOW (don't wait for 3 poll failures) and switch to fast recovery
+          // polling so we detect the comeback in seconds, not 45s.
+          this.remoteLinkDown = true;
+          this.error = 'The phone link dropped.';
+          this.armRemotePoll();
+        } else {
+          this.error = 'Could not reach the player.';
+        }
         this.emit();
       });
     // No pollRemoteSoon() here: Next/Prev/PlayQueue use awaitRemoteTrackSwitch
