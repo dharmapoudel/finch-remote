@@ -71,8 +71,9 @@ const REMOTE_POLL_PLAYING_MS = 15000;
 const REMOTE_POLL_IDLE_MS = 60000;
 // Remote playback latency compensation: the position reported by the phone
 // (via poll or WS push) is consistently ~2s behind the actual playback
-// position — phone → server → push → Bluetooth → Car Thing. Added to the
-// extrapolated position so the seek bar and lyrics stay in sync.
+// position — phone → server → push → Bluetooth → Car Thing. Added once at
+// track change so the seek bar and lyrics are in sync from the first frame;
+// mid-track updates use the raw position (extrapolation covers the gap).
 const REMOTE_LATENCY_MS = 2000;
 // After we send a remote command our optimistic local state wins over poll
 // data for this long, so the UI doesn't flicker back mid-flight.
@@ -255,11 +256,7 @@ export class PlaybackEngine {
 
   positionNow(): number {
     if (this.intentPlaying && this.positionMs >= 0) {
-      const base = this.positionMs + (Date.now() - this.positionAt);
-      // Remote positions arrive ~2s stale; compensate so the seek bar and
-      // lyrics track the actual playback. Local playback needs no offset.
-      const offset = this.remoteActive ? REMOTE_LATENCY_MS : 0;
-      return Math.min(base + offset, this.durationMs || Infinity);
+      return Math.min(this.positionMs + (Date.now() - this.positionAt), this.durationMs || Infinity);
     }
     return this.positionMs;
   }
@@ -1296,7 +1293,10 @@ export class PlaybackEngine {
       this.index = 0;
     }
     this.durationMs = track.durationMs;
-    this.positionMs = wsSt.positionMs;
+    // The push is ~2s stale; nudge the start position so the seek bar and
+    // lyrics are in sync from the first frame. Subsequent pushes update the
+    // raw position (the extrapolation covers the gap).
+    this.positionMs = wsSt.positionMs + REMOTE_LATENCY_MS;
     this.positionAt = Date.now();
     this.intentPlaying = !wsSt.paused;
     this.loading = false;
@@ -1430,7 +1430,9 @@ export class PlaybackEngine {
         this.index = 0;
       }
       this.durationMs = st.track.durationMs;
-      this.positionMs = st.positionMs;
+      // +2s: the poll is stale; sync the seek bar/lyrics from the first frame.
+      // (Only on track change — mid-track updates use the raw position.)
+      this.positionMs = st.positionMs + REMOTE_LATENCY_MS;
       this.positionAt = Date.now();
       this.loading = false;
       this.error = null;
