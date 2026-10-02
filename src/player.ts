@@ -1401,7 +1401,9 @@ export class PlaybackEngine {
         this.error = serverSaid ? 'Could not reach the player.' : 'The phone link dropped.';
         this.emit();
       });
-    this.pollRemoteSoon();
+    // No pollRemoteSoon() here: Next/Prev/PlayQueue use awaitRemoteTrackSwitch
+    // (light single-session polls); Pause/Seek are confirmed by the 15s tick.
+    // The old 300ms full poll (15KB) on every command was dropping the link.
   }
 
   // Feed gateway (phone Bluetooth) connection transitions here. Finch is
