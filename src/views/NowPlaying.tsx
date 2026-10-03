@@ -574,14 +574,13 @@ export default function NowPlaying({
       const artW = Math.max(60, 440 - 380 * pMini);
       const artH = Math.max(84, 480 - 396 * pMini);
       artBoxRef.current.style.width = `${artW}px`;
-      artBoxRef.current.style.height = `${artH}px`;
-      // At mini the art sits below the 4px seekbar (no gap).
-      if (pMini >= 0.5) {
-        artBoxRef.current.style.marginTop = '4px';
-        artBoxRef.current.style.height = `${artH - 4}px`;
-      } else {
-        artBoxRef.current.style.marginTop = '';
-      }
+      // Padding around the art interpolates 0->8px with the morph.
+      const pad = 8 * pMini;
+      artBoxRef.current.style.padding = `${pad}px`;
+      // Top margin clears the 4px seekbar, ramping with its opacity.
+      const mt = 4 * Math.min(1, pMini * 1.5);
+      artBoxRef.current.style.marginTop = `${mt}px`;
+      artBoxRef.current.style.height = `${artH - mt}px`;
     }
 
     const miniMode = pMini >= 0.5;
