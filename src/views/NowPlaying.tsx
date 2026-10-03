@@ -444,6 +444,26 @@ export default function NowPlaying({
   const lyricsTab = player.lyricsTab;
   const t = player.current();
   const trackId = t?.id;
+  // On track change, re-sync the visual state and App's miniState. The DOM
+  // transform survives re-renders, but effects can desync (e.g. lyrics
+  // overlay reappearing, queue pill showing in mini bar).
+  useEffect(() => {
+    const el = sheetRef.current;
+    if (!el) return;
+    const m = el.style.transform.match(/translateY\((-?\d+(?:\.\d+)?)px\)/);
+    const y = m ? Math.max(0, parseFloat(m[1])) : 0;
+    updateLayers(y);
+    const H = el.clientHeight || window.innerHeight;
+    const miniY = H - MINI_H;
+    const sliverY = H - SLIVER_H;
+    if (y >= (miniY + sliverY) / 2) {
+      if (onCollapse) onCollapse('sliver');
+    } else if (y >= miniY * 0.5) {
+      if (onCollapse) onCollapse('mini');
+    } else {
+      if (onCollapse) onCollapse('hidden');
+    }
+  }, [trackId]);
   const artPanelRef = useRef<HTMLDivElement>(null);
 
   // The knob drives the phone's volume on this screen: tap toggles
@@ -627,7 +647,17 @@ export default function NowPlaying({
 
   const onTouchStart = (e: RTouchEvent): void => {
     // Touches inside the lyrics panel scroll the lyrics instead of dragging.
-    if (showLyrics && artPanelRef.current?.contains(e.target as Node)) return;
+    // Only in fullscreen; in mini/sliver the lyrics are hidden and taps
+    // should open fullscreen.
+    const el0 = sheetRef.current;
+    let baseY0 = 0;
+    if (el0) {
+      const m0 = el0.style.transform.match(/translateY\((-?\d+(?:\.\d+)?)px\)/);
+      baseY0 = m0 ? Math.max(0, parseFloat(m0[1])) : 0;
+    }
+    const H0 = el0?.clientHeight || window.innerHeight;
+    const isFullscreen = baseY0 < (H0 - MINI_H) * 0.5;
+    if (isFullscreen && showLyrics && artPanelRef.current?.contains(e.target as Node)) return;
     const p = e.touches[0];
     const el = sheetRef.current;
     let baseY = 0;
