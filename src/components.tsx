@@ -1072,14 +1072,14 @@ export function ProgressBar({
         </div>
         {player.intentPlaying && dot && (
           <div
-            className="pointer-events-none absolute top-1/2 h-3 w-3 animate-halo rounded-full bg-goldlight"
-            style={{ left: `${ratio * 100}%` }}
+            className={`pointer-events-none absolute top-1/2 h-3 w-3 animate-halo rounded-full ${fill ? '' : 'bg-goldlight'}`}
+            style={{ left: `${ratio * 100}%`, ...(fill ? { background: fill } : {}) }}
           />
         )}
         {dot && (
           <div
-            className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-goldlight shadow"
-            style={{ left: `${ratio * 100}%` }}
+            className={`absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full shadow ${fill ? '' : 'bg-goldlight'}`}
+            style={{ left: `${ratio * 100}%`, ...(fill ? { background: fill } : {}) }}
           />
         )}
       </div>
