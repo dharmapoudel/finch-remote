@@ -686,7 +686,7 @@ export default function App() {
         {/* Now Playing overlay: fullscreen panel on top of the tabs. When
             collapsed to mini/sliver, the underlying tab shows through. */}
         {npOverlayOpen ? (
-          <div className="fixed inset-0 z-40">
+          <div className="pointer-events-none fixed inset-0 z-40">
             <NowPlaying
               jf={jf as never}
               nav={nav}

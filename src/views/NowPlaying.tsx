@@ -944,7 +944,7 @@ export default function NowPlaying({
     <>
       <div
         ref={sheetRef}
-        className="relative h-full overflow-hidden"
+        className="pointer-events-auto relative h-full overflow-hidden"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
