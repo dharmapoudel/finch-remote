@@ -261,7 +261,6 @@ export default function App() {
   // instead of being a no-op on a single-item stack.
   const stackBeforeNpRef = useRef<View[] | null>(null);
   const pillRef = useRef<HTMLDivElement>(null);
-  const [dragMiniOpacity, setDragMiniOpacity] = useState(0);
   const [expandAnim, setExpandAnim] = useState(false);
 
   const load = useCallback(async () => {
@@ -433,12 +432,9 @@ export default function App() {
   const expandFromMini = useCallback(() => {
     setExpandAnim(true);
     setMiniState('hidden');
-    setDragMiniOpacity(0);
     // Navigate to nowplaying; the view will animate in via expandAnim.
     stackBeforeNpRef.current = null;
     lastNavWasPushRef.current = true;
-    // If we were on nowplaying before (shouldn't happen), just show it.
-    // Otherwise, push nowplaying onto the stack.
     setStack(prev => {
       const last = prev[prev.length - 1];
       if (last?.name === 'nowplaying') return prev;
@@ -457,7 +453,6 @@ export default function App() {
     lastNavWasPushRef.current = true;
     setStack(s && s.length ? s : [returnViewRef.current]);
     setMiniState(target === 'hidden' ? 'hidden' : target);
-    setDragMiniOpacity(0);
   }, []);
 
   const back = useCallback(() => {
@@ -703,8 +698,6 @@ export default function App() {
             onDragProgress={p => {
               const pill = pillRef.current;
               if (pill) pill.style.opacity = String(1 - p);
-              // Fade in the real MiniBar underneath during the drag.
-              setDragMiniOpacity(p);
             }}
           />
         );
@@ -758,21 +751,11 @@ export default function App() {
             <QueueHandle onOpen={() => setQueueOpen(true)} />
           </div>
         ) : null}
-        {/* Mini player: fades in underneath during the Now Playing drag
-            (dragMiniOpacity), stays visible after snap via miniState.
-            The same real MiniBar — no preview swap, no jump. */}
-        {current && (view.name === 'nowplaying' || miniState === 'mini') && !expandAnim ? (
-          <div
-            style={{
-              opacity: view.name === 'nowplaying' ? dragMiniOpacity : 1,
-              pointerEvents: view.name === 'nowplaying' && dragMiniOpacity < 0.5 ? 'none' : 'auto',
-            }}
-          >
-            <MiniBar
-              onExpand={expandFromMini}
-              onCollapse={() => setMiniState('sliver')}
-            />
-          </div>
+        {/* Mini player: shown when Now Playing was dragged down (miniState),
+            or when the sliver was swiped up. Hidden while the full
+            Now Playing screen is open. */}
+        {current && view.name !== 'nowplaying' && miniState === 'mini' && !expandAnim ? (
+          <MiniBar onExpand={expandFromMini} onCollapse={() => setMiniState('sliver')} />
         ) : null}
         {current && view.name !== 'nowplaying' && miniState === 'sliver' ? (
           <SeekSliver onExpand={() => setMiniState('mini')} />

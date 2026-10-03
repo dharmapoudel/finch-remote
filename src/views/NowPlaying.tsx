@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type TouchEvent as RTouchEvent } from 'react';
 import { Ghost, Icon, ProgressBar, TransportGlyph, readBlurSig, useArt, useCachedArt, usePlayer, usePortrait, warmArt } from '../components';
+import { MiniBar } from '../MiniBar';
 import { useAccent, type Accent } from '../accent';
 import type { LyricLineVM } from '../jellyfin';
 import { player } from '../player';
@@ -454,16 +455,46 @@ export default function NowPlaying({
   const hasLyrics = lyrics.state === 'synced' || lyrics.state === 'plain';
   const showLyrics = lyricsTab && hasLyrics;
 
-  // Draggable sheet with three snap points: full (0), mini, sliver.
-  // The drag is continuous — you can go from full all the way to sliver in
-  // one gesture. The sheet translates down and fades; the real MiniBar in
-  // App.tsx fades in underneath (via onDragProgress), so there's no jump on
-  // snap. Direct DOM updates for 60fps.
+  // Draggable sheet: same panel morphs from full → mini → sliver.
+  // The sheet follows the finger 1:1. Within the sheet, three layers
+  // crossfade: the full UI fades out as the mini bar (real MiniBar
+  // component, pixel-identical) fades in at the sheet's top — which lands
+  // at the screen bottom when the sheet is dragged to the mini position.
+  // The sliver is the same ProgressBar clipped to 2px. No panel swap
+  // during drag; the handoff to App.tsx's persistent bar happens after
+  // snap, at the identical position.
   const sheetRef = useRef<HTMLDivElement>(null);
+  const fullLayerRef = useRef<HTMLDivElement>(null);
+  const miniLayerRef = useRef<HTMLDivElement>(null);
+  const sliverLayerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startY: number; dy: number } | null>(null);
 
   const MINI_H = 84;
   const SLIVER_H = 2;
+
+  const updateLayers = (dy: number): void => {
+    const H = window.innerHeight;
+    const miniY = H - MINI_H;
+    const sliverY = H - SLIVER_H;
+    // 0→1 as we drag from full to mini position
+    const pMini = Math.min(1, Math.max(0, dy / miniY));
+    // 0→1 as we drag from mini to sliver position
+    const pSliver = Math.min(1, Math.max(0, (dy - miniY) / Math.max(1, sliverY - miniY)));
+    const full = fullLayerRef.current;
+    const mini = miniLayerRef.current;
+    const sliver = sliverLayerRef.current;
+    if (full) {
+      full.style.opacity = String(1 - pMini);
+      // Scale down slightly for a pleasant morph feel.
+      full.style.transform = `scale(${1 - pMini * 0.06})`;
+    }
+    // The mini layer has a solid background; ensure no gap where both
+    // are semi-transparent by overlapping the fades.
+    if (mini) mini.style.opacity = String(Math.min(1, pMini * 1.2));
+    if (sliver) sliver.style.opacity = String(pSliver);
+    // Fade mini out as sliver takes over.
+    if (mini && pSliver > 0) mini.style.opacity = String(Math.min(1, pMini * 1.2) * (1 - pSliver));
+  };
 
   const onTouchStart = (e: RTouchEvent): void => {
     // Touches inside the lyrics panel scroll the lyrics instead of dragging.
@@ -484,11 +515,8 @@ export default function NowPlaying({
     const dy = Math.max(0, p.clientY - d.startY);
     d.dy = dy;
     el.style.transform = `translateY(${dy}px)`;
-    // Fade the sheet out as it drags down; the real MiniBar underneath
-    // (in App.tsx) fades in via onDragProgress. This is the "elements
-    // rearranging" — the full UI dissolves into the mini bar.
-    const fade = Math.min(1, dy / (window.innerHeight * 0.35));
-    el.style.opacity = String(1 - fade * 0.7);
+    updateLayers(dy);
+    // Fade the queue pill out as we drag down (it lives in App.tsx).
     onDragProgress?.(Math.min(1, dy / (window.innerHeight * 0.3)));
   };
   const onTouchEnd = (): void => {
@@ -514,18 +542,18 @@ export default function NowPlaying({
       target = 'sliver';
     }
     const ease = 'cubic-bezier(0.32, 0.72, 0, 1)';
-    el.style.transition = `transform 0.35s ${ease}, opacity 0.35s ${ease}`;
+    el.style.transition = `transform 0.35s ${ease}`;
     el.style.willChange = 'auto';
     el.style.transform = `translateY(${targetY}px)`;
+    updateLayers(targetY);
     if (target) {
-      // Fade out completely as we snap to mini/sliver — the real bar
-      // underneath is already visible, so the handoff is seamless.
-      el.style.opacity = '0';
+      // Let the snap animation finish, then hand off to the persistent
+      // mini/sliver in App.tsx — at the identical position, so no jump.
       window.setTimeout(() => onMinimize(target), 340);
     } else {
-      // Snapped back to full: restore.
-      el.style.opacity = '1';
+      // Snapped back to full: reset layers and restore the queue pill.
       onDragProgress?.(0);
+      window.setTimeout(() => updateLayers(0), 350);
     }
   };
 
@@ -711,15 +739,33 @@ export default function NowPlaying({
     <>
       <div
         ref={sheetRef}
-        className="relative flex h-full"
+        className="relative h-full overflow-hidden"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        <div ref={artPanelRef} className="h-full w-[55%] shrink-0 overflow-hidden">
-          {artPanel}
+        {/* Full UI layer — fades/scales out as we drag toward mini */}
+        <div ref={fullLayerRef} className="absolute inset-0 flex">
+          <div ref={artPanelRef} className="h-full w-[55%] shrink-0 overflow-hidden">
+            {artPanel}
+          </div>
+          <div className="h-full min-w-0 flex-1">{infoPanel}</div>
         </div>
-        <div className="h-full min-w-0 flex-1">{infoPanel}</div>
+        {/* Mini layer — the REAL MiniBar, pixel-identical to the persistent
+            one. Positioned at the sheet's top; when the sheet is dragged to
+            the mini position (H-84), this lands at the screen bottom.
+            pointer-events-none: it's a visual morph, not interactive yet. */}
+        <div ref={miniLayerRef} className="pointer-events-none absolute inset-x-0 top-0 opacity-0">
+          <MiniBar onExpand={() => {}} onCollapse={() => {}} />
+        </div>
+        {/* Sliver layer — same ProgressBar clipped to 2px, like the real sliver */}
+        <div ref={sliverLayerRef} className="pointer-events-none absolute inset-x-0 top-0 opacity-0">
+          <div className="h-[2px] w-full overflow-hidden">
+            <div className="h-[3px] w-full">
+              <ProgressBar onSeek={() => {}} dot={false} />
+            </div>
+          </div>
+        </div>
       </div>
       {remoteOpen ? <RemoteSheet onClose={() => setRemoteOpen(false)} /> : null}
     </>
