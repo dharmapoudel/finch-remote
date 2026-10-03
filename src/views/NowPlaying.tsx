@@ -713,7 +713,11 @@ export default function NowPlaying({
         targetY = miniY; target = 'mini';
       }
     } else {
-      if (flickDir < 0 || y <= (miniY + sliverY) / 2) {
+      // From sliver: tap -> fullscreen, up (drag/flick) -> mini, else stay.
+      const isTap = Math.abs(dy) < 10 && dt < 300;
+      if (isTap) {
+        targetY = 0; target = null;
+      } else if (flickDir < 0 || y <= (miniY + sliverY) / 2) {
         targetY = miniY; target = 'mini';
       } else {
         targetY = sliverY; target = 'sliver';
