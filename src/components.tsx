@@ -978,11 +978,13 @@ export function ProgressBar({
   dot = true,
   interactive = true,
   showTimes = true,
+  fill,
 }: {
   onSeek: (ms: number) => void;
   dot?: boolean;
   interactive?: boolean;
   showTimes?: boolean;
+  fill?: string;
 }) {
   usePlayer();
   const barRef = useRef<HTMLDivElement>(null);
@@ -1060,8 +1062,8 @@ export function ProgressBar({
       >
         <div className="absolute top-1/2 h-[3px] w-full -translate-y-1/2 rounded-full bg-white/18">
           <div
-            className="relative h-full overflow-hidden rounded-full bg-gold"
-            style={{ width: `${ratio * 100}%` }}
+            className={`relative h-full overflow-hidden rounded-full ${fill ? '' : 'bg-gold'}`}
+            style={{ width: `${ratio * 100}%`, ...(fill ? { background: fill } : {}) }}
           >
             {player.intentPlaying && (
               <div className="absolute inset-y-0 w-1/3 animate-sheen bg-gradient-to-r from-transparent via-white/70 to-transparent" />

@@ -305,7 +305,7 @@ function InfoPanel({
             <div className="morph-fade-early min-h-0 flex-1" aria-hidden="true" />
             <div className="morph-fade-early flex min-h-0 flex-[2] flex-col justify-center pt-[40px]">
               <div ref={morphProgressRef} className="morph-fade-early shrink-0">
-                <ProgressBar onSeek={ms => void player.seekTo(ms)} />
+                <ProgressBar onSeek={ms => void player.seekTo(ms)} fill={accent?.fill} />
               </div>
             </div>
           </div>
@@ -333,7 +333,7 @@ function InfoPanel({
                 <div className="w-6 shrink-0" aria-hidden="true" />
               )}
               <div className="morph-fade-early">
-              <Ghost label="Previous" onClick={() => void player.prev()} tint={accent?.fill}>
+              <Ghost label="Previous" onClick={() => void player.prev()} tint={accent?.fill ?? '#a1a1aa'}>
                 <TransportGlyph
                   name="skip"
                   className={small ? 'h-8 w-8 -scale-x-100' : 'h-7 w-7 -scale-x-100'}
@@ -344,7 +344,7 @@ function InfoPanel({
               <Ghost
                 label={player.intentPlaying ? 'Pause' : 'Play'}
                 onClick={() => void player.toggle()}
-                tint={accent?.fill}
+                tint={accent?.fill ?? '#a1a1aa'}
                 focusDefault
               >
                 {player.loading ? (
@@ -363,7 +363,7 @@ function InfoPanel({
               </Ghost>
               </div>
               <div ref={morphNextRef} className="ml-6">
-              <Ghost label="Next" onClick={() => void player.next()} tint={accent?.fill}>
+              <Ghost label="Next" onClick={() => void player.next()} tint={accent?.fill ?? '#a1a1aa'}>
                 <TransportGlyph name="skip" className={small ? 'h-8 w-8' : 'h-7 w-7'} />
               </Ghost>
               </div>
@@ -907,13 +907,13 @@ export default function NowPlaying({
 
         <div ref={miniSeekRef} className="pointer-events-none absolute inset-x-0 top-0 opacity-0">
           <div className="flex h-1 w-full items-center">
-            <ProgressBar onSeek={() => {}} dot={false} showTimes={false} />
+            <ProgressBar onSeek={() => {}} dot={false} showTimes={false} fill={accent?.fill} />
           </div>
         </div>
         <div ref={sliverLayerRef} className="pointer-events-none absolute inset-x-0 top-0 opacity-0">
           <div className="h-[2px] w-full overflow-hidden">
             <div className="h-[3px] w-full">
-              <ProgressBar onSeek={() => {}} dot={false} interactive={false} />
+              <ProgressBar onSeek={() => {}} dot={false} interactive={false} fill={accent?.fill} />
             </div>
           </div>
         </div>
