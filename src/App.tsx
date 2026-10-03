@@ -217,7 +217,7 @@ export default function App() {
   // Mini player state: 'mini' (bar with 20px seekbar) or 'sliver' (2px line).
   // Set when Now Playing is dragged down; hidden while full Now Playing is open.
   const [miniState, setMiniState] = useState<MiniState>('hidden');
-  usePlayer();
+  const playerRev = usePlayer();
 
   // "Clear cached data" from the phone settings page writes this config key.
   // The device wipes all three cache layers and reloads Home fresh. The
@@ -253,6 +253,24 @@ export default function App() {
   viewRef.current = view;
   const stackRef = useRef(stack);
   stackRef.current = stack;
+
+  // On app start, if a track is already playing (adopted from the phone),
+  // show the micro sliver bar at the bottom so the user knows what's playing.
+  // Runs when the player state changes; only sets sliver if we're not on
+  // Now Playing and miniState is still hidden (user hasn't dismissed it).
+  useEffect(() => {
+    const t = player.current();
+    if (
+      t &&
+      player.intentPlaying &&
+      !player.external &&
+      !player.error &&
+      view.name !== 'nowplaying' &&
+      miniState === 'hidden'
+    ) {
+      setMiniState('sliver');
+    }
+  }, [view.name, miniState, playerRev]);
   // Where Now Playing was opened from; it minimizes back here
   // (its nav replaces the stack, so back() can't).
   const returnViewRef = useRef<View>({ name: 'home' });

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type TouchEvent as RTouchEvent } from 'react';
-import { Ghost, Icon, ProgressBar, TransportGlyph, readBlurSig, useArt, useCachedArt, usePlayer, usePortrait, warmArt } from '../components';
-import { MiniBar } from '../MiniBar';
+import { Ghost, Icon, IconBtn, ProgressBar, TransportGlyph, readBlurSig, useArt, useCachedArt, usePlayer, usePortrait, warmArt, Artwork } from '../components';
 import { useAccent, type Accent } from '../accent';
 import type { LyricLineVM } from '../jellyfin';
 import { player } from '../player';
@@ -468,6 +467,12 @@ export default function NowPlaying({
   const miniLayerRef = useRef<HTMLDivElement>(null);
   const sliverLayerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startY: number; dy: number } | null>(null);
+  // Refs for staggered morph elements
+  const miniSeekRef = useRef<HTMLDivElement>(null);
+  const miniArtRef = useRef<HTMLDivElement>(null);
+  const miniTextRef = useRef<HTMLDivElement>(null);
+  const miniPlayRef = useRef<HTMLDivElement>(null);
+  const miniNextRef = useRef<HTMLDivElement>(null);
 
   const MINI_H = 84;
   const SLIVER_H = 2;
@@ -480,20 +485,47 @@ export default function NowPlaying({
     const pMini = Math.min(1, Math.max(0, dy / miniY));
     // 0→1 as we drag from mini to sliver position
     const pSliver = Math.min(1, Math.max(0, (dy - miniY) / Math.max(1, sliverY - miniY)));
+
     const full = fullLayerRef.current;
     const mini = miniLayerRef.current;
     const sliver = sliverLayerRef.current;
+    
+    // Full UI: fade out with slight scale down for morph feel.
+    // Stagger: fade quickly in first 60% of drag.
     if (full) {
-      full.style.opacity = String(1 - pMini);
-      // Scale down slightly for a pleasant morph feel.
-      full.style.transform = `scale(${1 - pMini * 0.06})`;
+      const pFull = Math.min(1, pMini * 1.4);
+      full.style.opacity = String(1 - pFull);
+      full.style.transform = `scale(${1 - pMini * 0.05})`;
     }
-    // The mini layer has a solid background; ensure no gap where both
-    // are semi-transparent by overlapping the fades.
-    if (mini) mini.style.opacity = String(Math.min(1, pMini * 1.2));
+    
+    // Mini elements: staggered fade in.
+    // The morph: elements toggle/fade within the same panel.
+    // Seekbar first, then art, text, controls.
+    const setOp = (ref: React.RefObject<HTMLDivElement | null>, p: number) => {
+      const el = ref.current;
+      if (el) el.style.opacity = String(Math.max(0, Math.min(1, p)));
+    };
+    // Staggered thresholds: each element fades in over a sub-range of pMini
+    setOp(miniSeekRef, (pMini - 0.1) / 0.3);  // 0.1→0.4
+    setOp(miniArtRef, (pMini - 0.25) / 0.3);   // 0.25→0.55
+    setOp(miniTextRef, (pMini - 0.4) / 0.3);    // 0.4→0.7
+    setOp(miniPlayRef, (pMini - 0.55) / 0.3);   // 0.55→0.85
+    setOp(miniNextRef, (pMini - 0.65) / 0.3);   // 0.65→0.95
+    
+    // Mini container: ensure it's visible when any element is.
+    if (mini) mini.style.opacity = pMini > 0.05 ? '1' : '0';
+    
+    // Sliver: fade in as we go from mini to sliver, mini fades out.
     if (sliver) sliver.style.opacity = String(pSliver);
-    // Fade mini out as sliver takes over.
-    if (mini && pSliver > 0) mini.style.opacity = String(Math.min(1, pMini * 1.2) * (1 - pSliver));
+    if (mini && pSliver > 0) {
+      // Fade the mini elements out as sliver takes over
+      const fade = 1 - pSliver;
+      setOp(miniSeekRef, ((pMini - 0.1) / 0.3) * fade);
+      setOp(miniArtRef, ((pMini - 0.25) / 0.3) * fade);
+      setOp(miniTextRef, ((pMini - 0.4) / 0.3) * fade);
+      setOp(miniPlayRef, ((pMini - 0.55) / 0.3) * fade);
+      setOp(miniNextRef, ((pMini - 0.65) / 0.3) * fade);
+    }
   };
 
   const onTouchStart = (e: RTouchEvent): void => {
@@ -735,6 +767,36 @@ export default function NowPlaying({
     );
   }
 
+  // Inline mini UI for the morph — same structure as MiniBar, but with
+  // individually controllable elements for staggered fade/scale.
+  // This is NOT a separate panel; it's the same sheet's elements toggling.
+  const miniMorph = t ? (
+    <div className="bg-black/55 backdrop-blur-md">
+      <div ref={miniSeekRef} className="flex h-5 w-full items-center px-4 opacity-0">
+        <ProgressBar onSeek={() => {}} dot={false} />
+      </div>
+      <div className="flex items-center gap-3 px-4 py-2">
+        <div ref={miniArtRef} className="opacity-0">
+          <Artwork src={art?.trackArt(t) ?? null} size={44} rounded="rounded-md" />
+        </div>
+        <div ref={miniTextRef} className="min-w-0 flex-1 opacity-0">
+          <div className="truncate text-base font-medium text-white">{t.name}</div>
+          <div className="truncate text-sm text-white/60">{t.artist}</div>
+        </div>
+        <div ref={miniPlayRef} className="opacity-0">
+          <IconBtn size={48} label="Play" onClick={() => {}}>
+            <Icon name={player.intentPlaying ? 'pause' : 'play'} size={24} />
+          </IconBtn>
+        </div>
+        <div ref={miniNextRef} className="opacity-0">
+          <IconBtn size={48} label="Next" onClick={() => {}}>
+            <Icon name="next" size={24} />
+          </IconBtn>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <>
       <div
@@ -744,21 +806,20 @@ export default function NowPlaying({
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        {/* Full UI layer — fades/scales out as we drag toward mini */}
+        {/* Full UI layer — fades out as we drag toward mini */}
         <div ref={fullLayerRef} className="absolute inset-0 flex">
           <div ref={artPanelRef} className="h-full w-[55%] shrink-0 overflow-hidden">
             {artPanel}
           </div>
           <div className="h-full min-w-0 flex-1">{infoPanel}</div>
         </div>
-        {/* Mini layer — the REAL MiniBar, pixel-identical to the persistent
-            one. Positioned at the sheet's top; when the sheet is dragged to
-            the mini position (H-84), this lands at the screen bottom.
-            pointer-events-none: it's a visual morph, not interactive yet. */}
-        <div ref={miniLayerRef} className="pointer-events-none absolute inset-x-0 top-0 opacity-0">
-          <MiniBar onExpand={() => {}} onCollapse={() => {}} />
+        {/* Mini morph layer — inline mini UI with staggered elements.
+            At the sheet's top; lands at screen bottom when dragged to mini.
+            pointer-events-none: visual morph only. */}
+        <div ref={miniLayerRef} className="pointer-events-none absolute inset-x-0 top-0">
+          {miniMorph}
         </div>
-        {/* Sliver layer — same ProgressBar clipped to 2px, like the real sliver */}
+        {/* Sliver layer — same ProgressBar clipped to 2px */}
         <div ref={sliverLayerRef} className="pointer-events-none absolute inset-x-0 top-0 opacity-0">
           <div className="h-[2px] w-full overflow-hidden">
             <div className="h-[3px] w-full">

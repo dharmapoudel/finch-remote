@@ -173,11 +173,12 @@ export default function Home({ jf, nav, openMenu }: ViewProps) {
                 // The currently playing track isn't in Jellyfin's DatePlayed
                 // list yet (it's marked played only after it finishes) — pin
                 // it to the front of the rail so it's always visible.
+                // Always pin to front, even if it's already in the list
+                // (replaying a track should move it to the front).
                 const now = nowActive ? player.current() : null;
-                const list =
-                  now && !recent.data!.some(t => t.id === now.id)
-                    ? [now, ...recent.data!]
-                    : recent.data!;
+                const list = now
+                  ? [now, ...recent.data!.filter(t => t.id !== now.id)]
+                  : recent.data!;
                 return list.slice(0, RAIL_N).map((t, i) => {
                   const isCurrent = nowActive && t.id === nowId;
                 return (
