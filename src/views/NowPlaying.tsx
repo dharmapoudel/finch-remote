@@ -568,7 +568,7 @@ export default function NowPlaying({
     if (leftPanelRef.current) {
       const panelW = 440 - 380 * pMini;
       leftPanelRef.current.style.width = `${panelW}px`;
-      leftPanelRef.current.style.background = pMini > 0 ? 'rgba(11, 13, 16, 0.75)' : '';
+      leftPanelRef.current.style.background = pMini > 0 ? 'rgba(11, 13, 16, 0.6)' : '';
     }
     if (artBoxRef.current) {
       const artW = Math.max(60, 440 - 380 * pMini);
@@ -603,7 +603,7 @@ export default function NowPlaying({
       // Always set (not faded): at fullscreen the blurred InfoPanel covers
       // it; as the art fades, the dark is revealed. The sheet above stays
       // transparent so Home shows through.
-      cw.background = 'rgba(11, 13, 16, 0.75)';
+      cw.background = 'rgba(11, 13, 16, 0.6)';
       // Ramp the top padding in with the seekbar's opacity so they never
       // overlap mid-morph.
       cw.paddingTop = `${4 * Math.min(1, pMini * 1.5)}px`;
@@ -620,6 +620,7 @@ export default function NowPlaying({
       titlesRef.current.style.height = miniMode ? 'auto' : '';
       titlesRef.current.style.paddingTop = miniMode ? '0' : '';
       titlesRef.current.style.paddingRight = miniMode ? '130px' : '';
+      titlesRef.current.style.paddingLeft = miniMode ? '12px' : '';
       // Device label ("Playing on …") is not needed in the mini bar.
       const dl = titlesRef.current.querySelector('[data-device-label]') as HTMLElement | null;
       if (dl) dl.style.display = miniMode ? 'none' : '';
