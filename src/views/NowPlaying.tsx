@@ -111,7 +111,7 @@ function SyncedLyrics({ lines }: { lines: LyricLineVM[] }) {
   });
 
   return (
-    <div className="h-full w-full overflow-y-auto px-6 py-8 pb-[40vh]">
+    <div className="h-full w-full overflow-y-auto px-6 py-8 pb-[70vh]">
       {lines.map((l, i) => {
         const isActive = i === active;
         return (
@@ -362,7 +362,7 @@ function InfoPanel({
                 )}
               </Ghost>
               </div>
-              <div ref={morphNextRef} className="ml-6">
+              <div ref={morphNextRef}>
               <Ghost label="Next" onClick={() => void player.next()} tint={accent?.fill ?? '#a1a1aa'}>
                 <TransportGlyph name="skip" className={small ? 'h-8 w-8' : 'h-7 w-7'} />
               </Ghost>
