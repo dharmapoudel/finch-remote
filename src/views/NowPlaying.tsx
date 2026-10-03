@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type TouchEvent as RTouchEvent } from 'react';
-import { Ghost, Icon, IconBtn, ProgressBar, TransportGlyph, readBlurSig, useArt, useCachedArt, usePlayer, usePortrait, warmArt, Artwork } from '../components';
+import { Ghost, Icon, IconBtn, ProgressBar, TransportGlyph, readBlurSig, useArt, useCachedArt, usePlayer, usePortrait, warmArt } from '../components';
 import { useAccent, type Accent } from '../accent';
 import type { LyricLineVM } from '../jellyfin';
 import { player } from '../player';
@@ -469,10 +469,11 @@ export default function NowPlaying({
   const dragRef = useRef<{ startY: number; dy: number } | null>(null);
   // Refs for staggered morph elements
   const miniSeekRef = useRef<HTMLDivElement>(null);
-  const miniArtRef = useRef<HTMLDivElement>(null);
   const miniTextRef = useRef<HTMLDivElement>(null);
   const miniPlayRef = useRef<HTMLDivElement>(null);
   const miniNextRef = useRef<HTMLDivElement>(null);
+  // Refs for TRUE morph: the actual fullscreen elements that transform
+  const morphArtRef = useRef<HTMLDivElement>(null);
 
   const MINI_H = 84;
   const SLIVER_H = 2;
@@ -507,10 +508,21 @@ export default function NowPlaying({
     };
     // Staggered thresholds: each element fades in over a sub-range of pMini
     setOp(miniSeekRef, (pMini - 0.1) / 0.3);  // 0.1→0.4
-    setOp(miniArtRef, (pMini - 0.25) / 0.3);   // 0.25→0.55
+    // Artwork uses TRUE MORPH (geometric transform of the fullscreen element),
+    // not a fade. The miniArtRef fade is disabled — the morph handles it.
     setOp(miniTextRef, (pMini - 0.4) / 0.3);    // 0.4→0.7
     setOp(miniPlayRef, (pMini - 0.55) / 0.3);   // 0.55→0.85
     setOp(miniNextRef, (pMini - 0.65) / 0.3);   // 0.65→0.95
+
+    // TRUE MORPH: the actual fullscreen artwork element scales and moves
+    // to the mini position. Same DOM node, geometric transform — not a fade.
+    if (morphArtRef.current) {
+      const scale = 1 - pMini * 0.9; // 1 → 0.1 (440px → 44px)
+      const tx = 16 * pMini; // 0 → 16px
+      const ty = 30 * pMini; // 0 → 30px
+      morphArtRef.current.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      morphArtRef.current.style.borderRadius = `${12 * pMini}px`;
+    }
     
     // Mini container: ensure it's visible when any element is.
     if (mini) mini.style.opacity = pMini > 0.05 ? '1' : '0';
@@ -521,7 +533,7 @@ export default function NowPlaying({
       // Fade the mini elements out as sliver takes over
       const fade = 1 - pSliver;
       setOp(miniSeekRef, ((pMini - 0.1) / 0.3) * fade);
-      setOp(miniArtRef, ((pMini - 0.25) / 0.3) * fade);
+      // miniArtRef removed — artwork uses TRUE MORPH, not fade
       setOp(miniTextRef, ((pMini - 0.4) / 0.3) * fade);
       setOp(miniPlayRef, ((pMini - 0.55) / 0.3) * fade);
       setOp(miniNextRef, ((pMini - 0.65) / 0.3) * fade);
@@ -776,9 +788,9 @@ export default function NowPlaying({
         <ProgressBar onSeek={() => {}} dot={false} />
       </div>
       <div className="flex items-center gap-3 px-4 py-2">
-        <div ref={miniArtRef} className="opacity-0">
-          <Artwork src={art?.trackArt(t) ?? null} size={44} rounded="rounded-md" />
-        </div>
+        {/* Artwork is TRUE MORPHED from the fullscreen element (morphArtRef).
+            This spacer reserves the 44px slot; the morphed art lands here. */}
+        <div className="h-11 w-11 shrink-0" />
         <div ref={miniTextRef} className="min-w-0 flex-1 opacity-0">
           <div className="truncate text-base font-medium text-white">{t.name}</div>
           <div className="truncate text-sm text-white/60">{t.artist}</div>
@@ -806,12 +818,19 @@ export default function NowPlaying({
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        {/* Full UI layer — fades out as we drag toward mini */}
+        {/* Full UI layer — fades out as we drag toward mini.
+            NOTE: artwork is in its own morph layer below, not here. */}
         <div ref={fullLayerRef} className="absolute inset-0 flex">
-          <div ref={artPanelRef} className="h-full w-[55%] shrink-0 overflow-hidden">
+          <div className="h-full w-[55%] shrink-0" />
+          <div className="h-full min-w-0 flex-1">{infoPanel}</div>
+        </div>
+
+        {/* Artwork MORPH layer — the SAME element from fullscreen scales and
+            moves to the mini position. This is a true morph, not a crossfade. */}
+        <div ref={morphArtRef} className="absolute left-0 top-0 h-full w-[55%] overflow-hidden" style={{ transformOrigin: 'top left' }}>
+          <div ref={artPanelRef} className="h-full w-full overflow-hidden">
             {artPanel}
           </div>
-          <div className="h-full min-w-0 flex-1">{infoPanel}</div>
         </div>
         {/* Mini morph layer — inline mini UI with staggered elements.
             At the sheet's top; lands at screen bottom when dragged to mini.
@@ -819,11 +838,11 @@ export default function NowPlaying({
         <div ref={miniLayerRef} className="pointer-events-none absolute inset-x-0 top-0">
           {miniMorph}
         </div>
-        {/* Sliver layer — same ProgressBar clipped to 2px */}
+        {/* Sliver layer — same ProgressBar clipped to 2px, read-only */}
         <div ref={sliverLayerRef} className="pointer-events-none absolute inset-x-0 top-0 opacity-0">
           <div className="h-[2px] w-full overflow-hidden">
             <div className="h-[3px] w-full">
-              <ProgressBar onSeek={() => {}} dot={false} />
+              <ProgressBar onSeek={() => {}} dot={false} interactive={false} />
             </div>
           </div>
         </div>

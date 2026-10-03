@@ -976,9 +976,11 @@ export function Ghost({
 export function ProgressBar({
   onSeek,
   dot = true,
+  interactive = true,
 }: {
   onSeek: (ms: number) => void;
   dot?: boolean;
+  interactive?: boolean;
 }) {
   usePlayer();
   const barRef = useRef<HTMLDivElement>(null);
@@ -1024,23 +1026,35 @@ export function ProgressBar({
         aria-valuenow={Math.round(shown)}
         // slim o-music-style rail: 3px track, 12px dot. The -my-3/py-3 keeps
         // a 48px touch target while the layout footprint stays 24px.
-        className="relative -my-3 flex h-6 w-full cursor-pointer touch-none items-center py-3"
-        onPointerDown={e => {
-          e.currentTarget.setPointerCapture?.(e.pointerId);
-          const ms = msFromEvent(e.clientX);
-          if (ms !== null) setDragMs(ms);
-        }}
-        onPointerMove={e => {
-          if (dragMs === null) return;
-          const ms = msFromEvent(e.clientX);
-          if (ms !== null) setDragMs(ms);
-        }}
-        onPointerUp={e => {
-          const ms = msFromEvent(e.clientX) ?? dragMs;
-          setDragMs(null);
-          if (ms !== null) onSeek(ms);
-        }}
-        onPointerCancel={() => setDragMs(null)}
+        className={`relative -my-3 flex h-6 w-full items-center py-3 ${interactive ? 'cursor-pointer touch-none' : 'pointer-events-none'}`}
+        onPointerDown={
+          interactive
+            ? e => {
+                e.currentTarget.setPointerCapture?.(e.pointerId);
+                const ms = msFromEvent(e.clientX);
+                if (ms !== null) setDragMs(ms);
+              }
+            : undefined
+        }
+        onPointerMove={
+          interactive
+            ? e => {
+                if (dragMs === null) return;
+                const ms = msFromEvent(e.clientX);
+                if (ms !== null) setDragMs(ms);
+              }
+            : undefined
+        }
+        onPointerUp={
+          interactive
+            ? e => {
+                const ms = msFromEvent(e.clientX) ?? dragMs;
+                setDragMs(null);
+                if (ms !== null) onSeek(ms);
+              }
+            : undefined
+        }
+        onPointerCancel={interactive ? () => setDragMs(null) : undefined}
       >
         <div className="absolute top-1/2 h-[3px] w-full -translate-y-1/2 rounded-full bg-white/18">
           <div
@@ -1058,10 +1072,12 @@ export function ProgressBar({
             style={{ left: `${ratio * 100}%` }}
           />
         )}
-        <div
-          className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-goldlight shadow"
-          style={{ left: `${ratio * 100}%` }}
-        />
+        {dot && (
+          <div
+            className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-goldlight shadow"
+            style={{ left: `${ratio * 100}%` }}
+          />
+        )}
       </div>
       <div className="mt-2 flex justify-between font-mono text-[0.75rem] tabular-nums text-white/35">
         <span>{fmtTime(shown)}</span>

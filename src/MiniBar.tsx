@@ -39,10 +39,11 @@ export function SeekSliver({ onExpand }: { onExpand: () => void }) {
       onTouchEnd={onTouchEnd}
       className="absolute inset-x-0 bottom-0 z-30 h-4 cursor-pointer"
     >
-      {/* Clip the 3px ProgressBar track to 2px — same gold, sheen, animation */}
+      {/* Clip the 3px ProgressBar track to 2px — same gold, sheen, animation.
+          Read-only: no seek on the micro bar. */}
       <div className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden">
         <div className="h-[3px] w-full">
-          <ProgressBar onSeek={ms => void player.seekTo(ms)} dot={false} />
+          <ProgressBar onSeek={() => {}} dot={false} interactive={false} />
         </div>
       </div>
     </div>
