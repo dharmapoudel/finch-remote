@@ -841,7 +841,7 @@ export function Tile({
   return (
     <div className={fluid ? 'relative min-w-0' : 'relative shrink-0'} style={fluid ? undefined : { width: size }}>
       <button type="button" data-focusable onClick={onClick} className="block w-full text-left active:opacity-80">
-        <div data-glow-target className={active ? 'rounded-2xl ring-2 ring-inset ring-leaf' : 'rounded-2xl'}>
+        <div data-glow-target className='rounded-2xl'>
           <Artwork src={art} size={size} rounded="rounded-2xl" label={title} fluid={fluid} />
         </div>
         <div className={`mt-2 truncate text-lg leading-tight font-medium ${active ? 'text-leaf' : ''}`}>{title}</div>
@@ -1166,7 +1166,7 @@ export function GridCard({
 }) {
   return (
     <div className="relative cursor-pointer" onClick={onClick} data-focusable role="button" tabIndex={-1}>
-      <div data-glow-target className={active ? 'rounded-2xl ring-2 ring-inset ring-leaf' : 'rounded-2xl'}>
+      <div data-glow-target className='rounded-2xl'>
         <Artwork src={art} size={320} rounded="rounded-2xl" label={title} fluid />
       </div>
       <div className={`mt-2 truncate px-1 text-lg leading-tight font-semibold ${active ? 'text-leaf' : ''}`}>

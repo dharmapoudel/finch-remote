@@ -264,16 +264,21 @@ button {
   }
 }
 
+*:focus, *:focus-visible {
+  outline: none !important;
+}
+
 /* Focused-item glow: the only focus indicator. Subtle by design — no ring,
    no cursor, no animation; the class simply moves between items, so nothing
    on screen ever moves except the glow itself.
    - .fx-focus-glow: box glow hugging the element (squircles, pills, circles).
    - .fx-focus-glow-text: the text itself glows (text buttons like "See all"). */
+/* Focus glow removed (user directive 2026-10-03): no outline anywhere. */
 .fx-focus-glow {
-  box-shadow: 0 0 14px 2px rgba(52, 211, 153, 0.28);
+  box-shadow: none;
 }
 .fx-focus-glow-text {
-  text-shadow: 0 0 14px rgba(52, 211, 153, 0.85);
+  text-shadow: none;
 }
 
 /* BloomArt CSS fallback: radial glow pulse over the plain <img>. */

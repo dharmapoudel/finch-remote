@@ -568,7 +568,11 @@ export default function NowPlaying({
     if (leftPanelRef.current) {
       const panelW = 440 - 380 * pMini;
       leftPanelRef.current.style.width = `${panelW}px`;
-      leftPanelRef.current.style.background = pMini > 0 ? 'rgba(11, 13, 16, 0.6)' : '';
+      leftPanelRef.current.style.background = pMini > 0 ? 'rgba(11, 13, 16, 0.3)' : '';
+    }
+    if (artPanelRef.current) {
+      // Squircle in mini bar, sharp in fullscreen; animates with the morph.
+      artPanelRef.current.style.borderRadius = `${Math.round(12 * pMini)}px`;
     }
     if (artBoxRef.current) {
       const artW = Math.max(60, 440 - 380 * pMini);
@@ -602,7 +606,7 @@ export default function NowPlaying({
       // Always set (not faded): at fullscreen the blurred InfoPanel covers
       // it; as the art fades, the dark is revealed. The sheet above stays
       // transparent so Home shows through.
-      cw.background = 'rgba(11, 13, 16, 0.6)';
+      cw.background = 'rgba(11, 13, 16, 0.3)';
       // Ramp the top padding in with the seekbar's opacity so they never
       // overlap mid-morph.
       cw.paddingTop = `${4 * Math.min(1, pMini * 1.5)}px`;
