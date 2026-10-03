@@ -22,9 +22,9 @@ export function QueueHandle({ onOpen }: { onOpen: () => void }) {
         startY.current = null;
         if (s !== null && s - e.changedTouches[0].clientY > 50) onOpen();
       }}
-      className="absolute bottom-1 left-1/2 z-20 -translate-x-1/2 p-3"
+      className="absolute bottom-0 left-1/2 z-20 -translate-x-1/2 px-3 pt-2 pb-1"
     >
-      <div data-glow-target className="h-2 w-12 rounded-full bg-white/20" />
+      <div data-glow-target className="h-1 w-12 rounded-full bg-white/20 shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
     </button>
   );
 }

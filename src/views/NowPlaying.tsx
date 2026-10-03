@@ -111,7 +111,7 @@ function SyncedLyrics({ lines }: { lines: LyricLineVM[] }) {
   });
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-[#14161c] px-6 py-8 pb-[40vh]">
+    <div className="h-full w-full overflow-y-auto px-6 py-8 pb-[40vh]">
       {lines.map((l, i) => {
         const isActive = i === active;
         return (
@@ -444,6 +444,23 @@ export default function NowPlaying({
   const lyricsTab = player.lyricsTab;
   const t = player.current();
   const trackId = t?.id;
+  // When App changes miniState externally (e.g. track tap while in mini
+  // bar sets 'hidden'), animate the sheet to match. Skips if already there
+  // (avoids fighting the drag-driven updates).
+  useEffect(() => {
+    const el = sheetRef.current;
+    if (!el || miniState === undefined) return;
+    const H = el.clientHeight || window.innerHeight;
+    const targetY = miniState === 'hidden' ? 0 : miniState === 'mini' ? H - MINI_H : H - SLIVER_H;
+    const m = el.style.transform.match(/translateY\((-?\d+(?:\.\d+)?)px\)/);
+    const curY = m ? parseFloat(m[1]) : 0;
+    if (Math.abs(curY - targetY) > 8) {
+      const ease = 'cubic-bezier(0.32, 0.72, 0, 1)';
+      el.style.transition = `transform 0.35s ${ease}`;
+      el.style.transform = `translateY(${targetY}px)`;
+      updateLayers(targetY);
+    }
+  }, [miniState]);
   // On track change, re-sync the visual state and App's miniState. The DOM
   // transform survives re-renders, but effects can desync (e.g. lyrics
   // overlay reappearing, queue pill showing in mini bar).
