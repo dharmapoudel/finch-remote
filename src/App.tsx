@@ -262,6 +262,7 @@ export default function App() {
   const stackBeforeNpRef = useRef<View[] | null>(null);
   const pillRef = useRef<HTMLDivElement>(null);
   const [dragMiniOpacity, setDragMiniOpacity] = useState(0);
+  const [expandAnim, setExpandAnim] = useState(false);
 
   const load = useCallback(async () => {
     setCredsState('loading');
@@ -425,6 +426,27 @@ export default function App() {
     },
     [nav, cancelPressTimer],
   );
+
+  // Expand from mini bar to fullscreen with animation.
+  // The NowPlaying view slides up from the mini bar position, creating
+  // the illusion that the mini panel expanded to fullscreen.
+  const expandFromMini = useCallback(() => {
+    setExpandAnim(true);
+    setMiniState('hidden');
+    setDragMiniOpacity(0);
+    // Navigate to nowplaying; the view will animate in via expandAnim.
+    stackBeforeNpRef.current = null;
+    lastNavWasPushRef.current = true;
+    // If we were on nowplaying before (shouldn't happen), just show it.
+    // Otherwise, push nowplaying onto the stack.
+    setStack(prev => {
+      const last = prev[prev.length - 1];
+      if (last?.name === 'nowplaying') return prev;
+      return [...prev, { name: 'nowplaying' }];
+    });
+    // Clear the anim flag after the transition.
+    window.setTimeout(() => setExpandAnim(false), 400);
+  }, []);
 
   const minimizeNowPlaying = useCallback((target: MiniState = 'mini') => {
     // Now Playing replaced the stack on open, so minimizing restores the
@@ -722,7 +744,9 @@ export default function App() {
           ) : null}
           <div
             key={view.name}
-            className={`min-h-0 w-full flex-1 ${viewAnim}`}
+            className={`min-h-0 w-full flex-1 ${viewAnim} ${
+              expandAnim && view.name === 'nowplaying' ? 'animate-mini-expand' : ''
+            }`}
           >
             {renderView()}
           </div>
@@ -737,7 +761,7 @@ export default function App() {
         {/* Mini player: fades in underneath during the Now Playing drag
             (dragMiniOpacity), stays visible after snap via miniState.
             The same real MiniBar — no preview swap, no jump. */}
-        {current && (view.name === 'nowplaying' || miniState === 'mini') ? (
+        {current && (view.name === 'nowplaying' || miniState === 'mini') && !expandAnim ? (
           <div
             style={{
               opacity: view.name === 'nowplaying' ? dragMiniOpacity : 1,
@@ -745,11 +769,7 @@ export default function App() {
             }}
           >
             <MiniBar
-              onExpand={() => {
-                setMiniState('hidden');
-                setDragMiniOpacity(0);
-                if (view.name !== 'nowplaying') nav({ name: 'nowplaying' });
-              }}
+              onExpand={expandFromMini}
               onCollapse={() => setMiniState('sliver')}
             />
           </div>

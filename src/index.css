@@ -196,6 +196,8 @@ button {
   --animate-view-enter: fx-view-enter 300ms cubic-bezier(0.22, 1, 0.36, 1)
     backwards;
   --animate-hero-in: fx-hero-in 600ms ease-out both;
+  --animate-mini-expand: fx-mini-expand 350ms cubic-bezier(0.32, 0.72, 0, 1)
+    backwards;
 
   /* one-shot 480ms track-change bloom: settle-in overshoot + brightness lift */
   @keyframes fx-bloom {    0% {
@@ -246,6 +248,18 @@ button {
     to {
       opacity: 1;
       transform: none;
+    }
+  }
+
+  /* Mini bar → fullscreen: sheet slides up from the mini bar position.
+     Starts translated down so only the bottom 84px (mini bar area) shows,
+     then expands to full. */
+  @keyframes fx-mini-expand {
+    from {
+      transform: translateY(calc(100% - 84px));
+    }
+    to {
+      transform: translateY(0);
     }
   }
 }

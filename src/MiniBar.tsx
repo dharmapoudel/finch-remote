@@ -5,59 +5,37 @@ import { player } from './player';
 export type MiniState = 'hidden' | 'mini' | 'sliver';
 
 // The 2px sliver: the exact same ProgressBar (gold fill, sheen, RAF-driven),
-// no halo dot, clipped to 2px. Tap or swipe up expands to the mini bar.
+// no halo dot, clipped to 2px. Swipe/flick up (or tap) expands to the mini bar.
 export function SeekSliver({ onExpand }: { onExpand: () => void }) {
   usePlayer();
   const t = player.current();
-  const startY = useRef<number | null>(null);
-  const sliverRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ startY: number; dy: number } | null>(null);
+  const swipeRef = useRef<{ startY: number; startT: number } | null>(null);
 
   if (!t) return null;
 
   const onTouchStart = (e: React.TouchEvent): void => {
-    const p = e.touches[0];
-    startY.current = p.clientY;
-    dragRef.current = { startY: p.clientY, dy: 0 };
-    const el = sliverRef.current;
-    if (el) {
-      el.style.transition = 'none';
-    }
+    swipeRef.current = { startY: e.touches[0].clientY, startT: Date.now() };
   };
-  const onTouchMove = (e: React.TouchEvent): void => {
-    const d = dragRef.current;
-    const el = sliverRef.current;
-    if (!d || !el) return;
-    const dy = e.touches[0].clientY - d.startY;
-    d.dy = dy;
-    // Only follow upward drags; downward does nothing (already minimal).
-    if (dy < 0) el.style.transform = `translateY(${dy}px)`;
-  };
-  const onTouchEnd = (): void => {
-    const d = dragRef.current;
-    const el = sliverRef.current;
-    dragRef.current = null;
-    startY.current = null;
-    if (!d || !el) return;
-    const ease = 'cubic-bezier(0.32, 0.72, 0, 1)';
-    el.style.transition = `transform 0.28s ${ease}`;
-    if (d.dy < -40) {
-      el.style.transform = 'translateY(-16px)';
-      el.style.opacity = '0';
-      window.setTimeout(() => onExpand(), 260);
-    } else {
-      el.style.transform = 'translateY(0px)';
+  const onTouchEnd = (e: React.TouchEvent): void => {
+    const s = swipeRef.current;
+    swipeRef.current = null;
+    if (!s) return;
+    const endY = e.changedTouches[0].clientY;
+    const dy = endY - s.startY;
+    const dt = Math.max(1, Date.now() - s.startT);
+    const velocity = -dy / dt; // px/ms upward
+    // Swipe up, flick up, or tap → expand to mini bar.
+    if (dy < -40 || velocity > 0.5 || Math.abs(dy) < 10) {
+      onExpand();
     }
   };
 
   return (
     <div
-      ref={sliverRef}
       role="button"
       aria-label="Expand mini player"
       onClick={onExpand}
       onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       className="absolute inset-x-0 bottom-0 z-30 h-4 cursor-pointer"
     >
@@ -81,12 +59,14 @@ export function MiniBar({ onExpand, onCollapse }: { onExpand: () => void; onColl
   const playing = player.intentPlaying && !player.loading;
   const barRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startY: number; dy: number } | null>(null);
+  const swipeRef = useRef<{ startY: number; startT: number } | null>(null);
 
   if (!t) return null;
 
   const onTouchStart = (e: React.TouchEvent): void => {
     const p = e.touches[0];
     dragRef.current = { startY: p.clientY, dy: 0 };
+    swipeRef.current = { startY: p.clientY, startT: Date.now() };
     const el = barRef.current;
     if (el) {
       el.style.transition = 'none';
@@ -100,30 +80,42 @@ export function MiniBar({ onExpand, onCollapse }: { onExpand: () => void; onColl
     const p = e.touches[0];
     const dy = p.clientY - d.startY;
     d.dy = dy;
-    // Drag down → collapse to sliver; drag up → expand to full.
-    // Follow finger 1:1 in both directions.
-    el.style.transform = `translateY(${dy}px)`;
-    const progress = Math.min(1, Math.abs(dy) / 120);
-    el.style.opacity = String(1 - progress * 0.4);
+    // Drag down → collapse to sliver. Up is swipe/flick only (no drag).
+    if (dy > 0) {
+      el.style.transform = `translateY(${dy}px)`;
+      const progress = Math.min(1, dy / 120);
+      el.style.opacity = String(1 - progress * 0.4);
+    }
   };
-  const onTouchEnd = (): void => {
+  const onTouchEnd = (e: React.TouchEvent): void => {
     const d = dragRef.current;
+    const s = swipeRef.current;
     const el = barRef.current;
     dragRef.current = null;
+    swipeRef.current = null;
     if (!d || !el) return;
     const ease = 'cubic-bezier(0.32, 0.72, 0, 1)';
     el.style.transition = `transform 0.28s ${ease}, opacity 0.28s ${ease}`;
     el.style.willChange = 'auto';
+
+    // Swipe/flick up detection: velocity or distance threshold.
+    if (s) {
+      const endY = e.changedTouches[0].clientY;
+      const dy = endY - s.startY;
+      const dt = Math.max(1, Date.now() - s.startT);
+      const velocity = -dy / dt; // px/ms upward
+      if (dy < -40 || velocity > 0.5) {
+        // Swipe/flick up → expand to fullscreen (animated).
+        onExpand();
+        return;
+      }
+    }
+
     if (d.dy > 50) {
       // Dragged down: snap to sliver.
       el.style.transform = 'translateY(100%)';
       el.style.opacity = '0';
       window.setTimeout(() => onCollapse(), 260);
-    } else if (d.dy < -50) {
-      // Dragged up: expand to full Now Playing.
-      el.style.transform = 'translateY(-20px)';
-      el.style.opacity = '0';
-      window.setTimeout(() => onExpand(), 260);
     } else {
       el.style.transform = 'translateY(0px)';
       el.style.opacity = '1';
