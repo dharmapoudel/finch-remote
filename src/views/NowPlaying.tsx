@@ -484,7 +484,9 @@ export default function NowPlaying({
   const SLIVER_H = 2;
 
   const updateLayers = (dy: number): void => {
-    const H = window.innerHeight;
+    // Use the sheet's own height, not window.innerHeight: when the tab bar
+    // is visible (collapsed), the sheet's container is shorter.
+    const H = sheetRef.current?.clientHeight || window.innerHeight;
     const miniY = H - MINI_H;
     const sliverY = H - SLIVER_H;
     const pMini = Math.min(1, Math.max(0, dy / miniY));
@@ -662,7 +664,7 @@ export default function NowPlaying({
       dy = m ? Math.max(0, parseFloat(m[1])) : 0;
       if (dy < 2) return;
     }
-    const H = window.innerHeight;
+    const H = sheetRef.current?.clientHeight || window.innerHeight;
     const miniY = H - MINI_H;
     const sliverY = H - SLIVER_H;
     let targetY: number;
@@ -888,7 +890,7 @@ export default function NowPlaying({
     <>
       <div
         ref={sheetRef}
-        className="fixed inset-0 overflow-hidden"
+        className="relative h-full overflow-hidden"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
