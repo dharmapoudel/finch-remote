@@ -272,7 +272,7 @@ function InfoPanel({
       <div ref={contentWrapRef} className="relative flex min-h-0 flex-1 flex-col px-5 py-4">
         <div ref={mainRowRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-5">
           <div ref={innerColRef} className="flex min-h-0 min-w-0 flex-1 flex-col py-1 transition-all duration-200">
-            <div className="morph-fade-early flex shrink-0 items-center justify-between">
+            <div className="morph-fade-early flex shrink-0 items-center justify-between pt-2">
               <Clock />
               <button
                 type="button"
@@ -585,6 +585,11 @@ export default function NowPlaying({
     }
 
     const miniMode = pMini >= 0.5;
+    // Mini bar: keep the pause->next gap (ml-6 equivalent). Fullscreen uses
+    // justify-between for equal gaps, so clear it there.
+    if (morphNextRef.current) {
+      morphNextRef.current.style.marginLeft = miniMode ? '24px' : '';
+    }
     // Panel height interpolates 480px -> 84px with the drag, keeping the
     // morphed bar glued to the visible area (no black gap, no snap jump).
     const panelH = 480 - (480 - 84) * pMini;
