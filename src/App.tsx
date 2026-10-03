@@ -692,6 +692,7 @@ export default function App() {
               nav={nav}
               back={back}
               openMenu={openMenu}
+              miniState={miniState}
               onMinimize={minimizeNowPlaying}
               onCollapse={collapseNowPlaying}
               onClose={closeNowPlaying}

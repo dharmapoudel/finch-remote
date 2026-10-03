@@ -402,16 +402,27 @@ export default function NowPlaying({
   onCollapse,
   onDragProgress,
   onClose,
+  miniState,
 }: ViewProps & {
-  onMinimize: (target?: 'mini' | 'sliver') => void;
-  onCollapse?: (target?: 'mini' | 'sliver') => void;
+  onMinimize: (target?: 'mini' | 'sliver' | 'hidden') => void;
+  onCollapse?: (target?: 'mini' | 'sliver' | 'hidden') => void;
   onDragProgress?: (progress: number) => void;
   onClose?: () => void;
+  miniState?: 'hidden' | 'mini' | 'sliver';
 }) {
   const playerRev = usePlayer();
   const art = useArt();
   const portrait = usePortrait();
   const [remoteOpen, setRemoteOpen] = useState(false);
+  // On mount, snap to the App's miniState (e.g. app-start sliver).
+  useEffect(() => {
+    const el = sheetRef.current;
+    if (!el || !miniState || miniState === 'hidden') return;
+    const H = el.clientHeight || window.innerHeight;
+    const y = miniState === 'mini' ? H - MINI_H : H - SLIVER_H;
+    el.style.transform = `translateY(${y}px)`;
+    updateLayers(y);
+  }, []);
   useEffect(() => {
     const unsub = player.subscribeWsPushes();
     if (player.remoteActive) player.refreshRemoteNow();
@@ -464,8 +475,7 @@ export default function NowPlaying({
   const sheetRef = useRef<HTMLDivElement>(null);
   const fullLayerRef = useRef<HTMLDivElement>(null);
   const rightPanelRef = useRef<HTMLDivElement>(null);
-  const sliverLayerRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ startY: number; dy: number } | null>(null);
+  const dragRef = useRef<{ startY: number; baseY: number; dy: number; startT: number } | null>(null);
   const stallTimerRef = useRef<number | null>(null);
   const leftPanelRef = useRef<HTMLDivElement>(null);
   const artBoxRef = useRef<HTMLDivElement>(null);
@@ -483,7 +493,7 @@ export default function NowPlaying({
   const morphNextRef = useRef<HTMLDivElement>(null);
 
   const MINI_H = 84;
-  const SLIVER_H = 2;
+  const SLIVER_H = 4;
 
   const updateLayers = (dy: number): void => {
     // Use the sheet's own height, not window.innerHeight: when the tab bar
@@ -493,7 +503,6 @@ export default function NowPlaying({
     const sliverY = H - SLIVER_H;
     const pMini = Math.min(1, Math.max(0, dy / miniY));
     const pSliver = Math.min(1, Math.max(0, (dy - miniY) / Math.max(1, sliverY - miniY)));
-    const sliver = sliverLayerRef.current;
 
     // Early-fade elements: fade out via opacity, then remove from layout
     // once the fade completes (pMini >= 0.34).
@@ -611,8 +620,6 @@ export default function NowPlaying({
     if (miniSeekRef.current) {
       miniSeekRef.current.style.opacity = String(Math.min(1, pMini * 1.5));
     }
-
-    if (sliver) sliver.style.opacity = '0';
     const fade = 1 - pSliver;
     if (leftPanelRef.current) leftPanelRef.current.style.opacity = String(fade);
     if (mainRowRef.current) mainRowRef.current.style.opacity = String(fade);
@@ -622,23 +629,30 @@ export default function NowPlaying({
     // Touches inside the lyrics panel scroll the lyrics instead of dragging.
     if (showLyrics && artPanelRef.current?.contains(e.target as Node)) return;
     const p = e.touches[0];
-    dragRef.current = { startY: p.clientY, dy: 0 };
     const el = sheetRef.current;
+    let baseY = 0;
     if (el) {
+      const m = el.style.transform.match(/translateY\((-?\d+(?:\.\d+)?)px\)/);
+      baseY = m ? Math.max(0, parseFloat(m[1])) : 0;
       el.style.transition = 'none';
       el.style.willChange = 'transform';
     }
+    dragRef.current = { startY: p.clientY, baseY, dy: 0, startT: Date.now() };
   };
   const onTouchMove = (e: RTouchEvent): void => {
     const d = dragRef.current;
     const el = sheetRef.current;
     if (!d || !el) return;
     const p = e.touches[0];
-    const dy = Math.max(0, p.clientY - d.startY);
+    const H = sheetRef.current?.clientHeight || window.innerHeight;
+    const sliverY = H - SLIVER_H;
+    const dy = p.clientY - d.startY;
     d.dy = dy;
-    el.style.transform = `translateY(${dy}px)`;
-    updateLayers(dy);
-    onDragProgress?.(Math.min(1, dy / (window.innerHeight * 0.3)));
+    // Clamp between fullscreen (0) and sliver (sliverY); allow upward drag.
+    const y = Math.min(sliverY, Math.max(0, d.baseY + dy));
+    el.style.transform = `translateY(${y}px)`;
+    updateLayers(y);
+    onDragProgress?.(Math.min(1, Math.max(0, y) / (window.innerHeight * 0.3)));
     // Stall detector: if the finger is truly stuck (no move for 500ms),
     // snap instead of hanging. Slow drags keep resetting the timer.
     if (stallTimerRef.current) window.clearTimeout(stallTimerRef.current);
@@ -656,30 +670,54 @@ export default function NowPlaying({
       stallTimerRef.current = null;
     }
     if (!el) return;
-    // Recover the position from the element's transform if the drag ref was
-    // lost (interrupted touch), so we always snap somewhere.
-    let dy: number;
-    if (d) {
-      dy = d.dy;
-    } else {
-      const m = el.style.transform.match(/translateY\((-?\d+(?:\.\d+)?)px\)/);
-      dy = m ? Math.max(0, parseFloat(m[1])) : 0;
-      if (dy < 2) return;
-    }
     const H = sheetRef.current?.clientHeight || window.innerHeight;
     const miniY = H - MINI_H;
     const sliverY = H - SLIVER_H;
+    // Recover the position from the element's transform if the drag ref was
+    // lost (interrupted touch), so we always snap somewhere.
+    let baseY: number;
+    let dy: number;
+    let dt: number;
+    if (d) {
+      baseY = d.baseY;
+      dy = d.dy;
+      dt = Date.now() - d.startT;
+    } else {
+      const m = el.style.transform.match(/translateY\((-?\d+(?:\.\d+)?)px\)/);
+      baseY = m ? Math.max(0, parseFloat(m[1])) : 0;
+      dy = 0;
+      dt = 9999;
+    }
+    const y = Math.min(sliverY, Math.max(0, baseY + dy));
+    // Flick: fast gesture (|dy|>24px in <300ms) snaps in the flick direction.
+    const isFlick = dt < 300 && Math.abs(dy) > 24;
+    const flickDir = isFlick ? Math.sign(dy) : 0;
     let targetY: number;
     let target: 'mini' | 'sliver' | null;
-    if (dy < miniY * 0.5) {
-      targetY = 0;
-      target = null;
-    } else if (dy < (miniY + sliverY) / 2) {
-      targetY = miniY;
-      target = 'mini';
+    const fromFull = baseY < miniY * 0.5;
+    const fromMini = !fromFull && baseY < (miniY + sliverY) / 2;
+    if (fromFull) {
+      if (flickDir > 0 || y >= (miniY + sliverY) / 2) {
+        targetY = sliverY; target = 'sliver';
+      } else if (y >= miniY * 0.4) {
+        targetY = miniY; target = 'mini';
+      } else {
+        targetY = 0; target = null;
+      }
+    } else if (fromMini) {
+      if (flickDir > 0 || y >= (miniY + sliverY) / 2) {
+        targetY = sliverY; target = 'sliver';
+      } else if (flickDir < 0 || y <= miniY * 0.6) {
+        targetY = 0; target = null;
+      } else {
+        targetY = miniY; target = 'mini';
+      }
     } else {
-      targetY = sliverY;
-      target = 'sliver';
+      if (flickDir < 0 || y <= (miniY + sliverY) / 2) {
+        targetY = miniY; target = 'mini';
+      } else {
+        targetY = sliverY; target = 'sliver';
+      }
     }
     const ease = 'cubic-bezier(0.32, 0.72, 0, 1)';
     el.style.transition = `transform 0.35s ${ease}`;
@@ -697,6 +735,10 @@ export default function NowPlaying({
     } else {
       onDragProgress?.(0);
       window.setTimeout(() => updateLayers(0), 350);
+      window.setTimeout(() => {
+        if (onCollapse) onCollapse('hidden');
+        else onMinimize('hidden');
+      }, 340);
     }
   };
 
@@ -912,13 +954,6 @@ export default function NowPlaying({
         <div ref={miniSeekRef} className="pointer-events-none absolute inset-x-0 top-0 opacity-0">
           <div className="flex h-1 w-full items-center">
             <ProgressBar onSeek={() => {}} dot={false} showTimes={false} fill={accent?.fill} />
-          </div>
-        </div>
-        <div ref={sliverLayerRef} className="pointer-events-none absolute inset-x-0 top-0 opacity-0">
-          <div className="h-[2px] w-full overflow-hidden">
-            <div className="h-[3px] w-full">
-              <ProgressBar onSeek={() => {}} dot={false} interactive={false} fill={accent?.fill} />
-            </div>
           </div>
         </div>
       </div>
