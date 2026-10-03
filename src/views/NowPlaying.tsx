@@ -475,7 +475,7 @@ export default function NowPlaying({
   const sheetRef = useRef<HTMLDivElement>(null);
   const fullLayerRef = useRef<HTMLDivElement>(null);
   const rightPanelRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ startY: number; baseY: number; dy: number; startT: number } | null>(null);
+  const dragRef = useRef<{ startY: number; baseY: number; dy: number; startT: number; target: EventTarget | null } | null>(null);
   const stallTimerRef = useRef<number | null>(null);
   const leftPanelRef = useRef<HTMLDivElement>(null);
   const artBoxRef = useRef<HTMLDivElement>(null);
@@ -637,7 +637,7 @@ export default function NowPlaying({
       el.style.transition = 'none';
       el.style.willChange = 'transform';
     }
-    dragRef.current = { startY: p.clientY, baseY, dy: 0, startT: Date.now() };
+    dragRef.current = { startY: p.clientY, baseY, dy: 0, startT: Date.now(), target: e.target };
   };
   const onTouchMove = (e: RTouchEvent): void => {
     const d = dragRef.current;
@@ -705,7 +705,13 @@ export default function NowPlaying({
         targetY = 0; target = null;
       }
     } else if (fromMini) {
-      if (flickDir > 0 || y >= (miniY + sliverY) / 2) {
+      // Tap on the track area (not buttons) -> fullscreen.
+      const t = d?.target as HTMLElement | null;
+      const onInteractive = !!t?.closest?.('button, a, [data-focusable], input');
+      const isTap = Math.abs(dy) < 10 && dt < 300 && !onInteractive;
+      if (isTap) {
+        targetY = 0; target = null;
+      } else if (flickDir > 0 || y >= (miniY + sliverY) / 2) {
         targetY = sliverY; target = 'sliver';
       } else if (flickDir < 0 || y <= miniY * 0.6) {
         targetY = 0; target = null;
