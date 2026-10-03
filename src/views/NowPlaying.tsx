@@ -585,11 +585,6 @@ export default function NowPlaying({
     }
 
     const miniMode = pMini >= 0.5;
-    // Mini bar: keep the pause->next gap (ml-6 equivalent). Fullscreen uses
-    // justify-between for equal gaps, so clear it there.
-    if (morphNextRef.current) {
-      morphNextRef.current.style.marginLeft = miniMode ? '24px' : '';
-    }
     // Panel height interpolates 480px -> 84px with the drag, keeping the
     // morphed bar glued to the visible area (no black gap, no snap jump).
     const panelH = 480 - (480 - 84) * pMini;
@@ -650,7 +645,8 @@ export default function NowPlaying({
         c.marginBottom = '0';
         c.width = 'auto';
         c.justifyContent = 'flex-start';
-        c.gap = '';
+        // Smooth gap 0->24px across the morph so the next button never jumps.
+        c.gap = `${Math.round(24 * Math.min(1, pMini / 0.5))}px`;
       } else {
         c.position = '';
         c.right = '';
