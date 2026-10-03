@@ -661,7 +661,9 @@ export default function App() {
     }
   };
 
-  const showChrome = credsState === 'ready' && view.name !== 'nowplaying';
+  // Show the tab bar when not in fullscreen Now Playing. When collapsed to
+  // mini/sliver, the user sees Home behind the sheet, so the tabs must show.
+  const showChrome = credsState === 'ready' && (view.name !== 'nowplaying' || miniState !== 'hidden');
   const current = player.current();
 
   // The view-enter animation replays only on pushes, never on root
