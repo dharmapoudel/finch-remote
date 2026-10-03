@@ -401,10 +401,12 @@ export default function NowPlaying({
   onMinimize,
   onCollapse,
   onDragProgress,
+  onClose,
 }: ViewProps & {
   onMinimize: (target?: 'mini' | 'sliver') => void;
   onCollapse?: (target?: 'mini' | 'sliver') => void;
   onDragProgress?: (progress: number) => void;
+  onClose?: () => void;
 }) {
   const playerRev = usePlayer();
   const art = useArt();
@@ -803,7 +805,7 @@ export default function NowPlaying({
           </button>
           <button
             type="button"
-            onClick={() => nav({ name: 'home' })}
+            onClick={() => onClose ? onClose() : nav({ name: 'home' })}
             className="h-18 rounded-full bg-leaf px-8 text-2xl font-bold text-black active:brightness-90"
           >
             Browse your library

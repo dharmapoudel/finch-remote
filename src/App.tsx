@@ -29,7 +29,7 @@ import NowPlaying from './views/NowPlaying';
 import { QueueHandle, QueueSheet } from './QueueSheet';
 import Queue from './views/Queue';
 import Setup, { CREDS_KEY, type StoredCreds } from './views/Setup';
-import { SeekSliver, type MiniState } from './MiniBar';
+import { type MiniState } from './MiniBar';
 
 // Phone settings page "Clear cached data" writes this config key with a
 // timestamp; the device wipes its caches when it sees it (real-time while
@@ -199,6 +199,14 @@ export default function App() {
   // Mini player state. Set when Now Playing is dragged down; hidden while
   // fullscreen Now Playing is open.
   const [miniState, setMiniState] = useState<MiniState>('hidden');
+  // Now Playing is a fullscreen overlay on top of the tabbed views, not a
+  // view itself. Opening it never replaces the stack; minimizing reveals
+  // the original tab underneath.
+  const [npOverlayOpen, setNpOverlayOpen] = useState(false);
+  const npOverlayOpenRef = useRef(false);
+  npOverlayOpenRef.current = npOverlayOpen;
+  const miniStateRef = useRef(miniState);
+  miniStateRef.current = miniState;
   const playerRev = usePlayer();
 
   // The device wipes all three cache layers and reloads Home fresh. The
@@ -244,20 +252,14 @@ export default function App() {
       player.intentPlaying &&
       !player.external &&
       !player.error &&
-      view.name !== 'nowplaying' &&
+      !npOverlayOpen &&
       miniState === 'hidden'
     ) {
+      setNpOverlayOpen(true);
       setMiniState('sliver');
     }
-  }, [view.name, miniState, playerRev]);
-  // Where Now Playing was opened from; it minimizes back here (its nav
-  // replaces the stack, so back() can't).
-  const returnViewRef = useRef<View>({ name: 'home' });
-  // The full stack from before Now Playing replaced it; minimizing restores
-  // this so back() pops to the parent instead of no-op'ing.
-  const stackBeforeNpRef = useRef<View[] | null>(null);
+  }, [npOverlayOpen, miniState, playerRev]);
   const pillRef = useRef<HTMLDivElement>(null);
-  const [expandAnim] = useState(false);
 
   const load = useCallback(async () => {
     setCredsState('loading');
@@ -353,23 +355,19 @@ export default function App() {
   }, [load]);
 
   const nav = useCallback((v: View) => {
-    const cur = viewRef.current;
-    // Now Playing's nav replaces the stack, so remember where it was opened
-    // from to minimize back to it. Any non-Now-Playing view counts.
-    if (v.name === 'nowplaying' && cur.name !== 'nowplaying' && cur.name !== 'setup') {
-      returnViewRef.current = cur;
-      stackBeforeNpRef.current = stackRef.current;
-      // Opening fullscreen resets the sheet state; otherwise a stale
-      // 'mini' would keep the tab bar visible in fullscreen.
+    // Now Playing is an overlay, not a view: opening it never touches the
+    // stack. The current tab stays underneath; minimizing reveals it.
+    if (v.name === 'nowplaying') {
+      setNpOverlayOpen(true);
       setMiniState('hidden');
+      return;
     }
     const isRoot =
       v.name === 'home' ||
       v.name === 'library' ||
       v.name === 'playlists' ||
       v.name === 'albums' ||
-      v.name === 'queue' ||
-      v.name === 'nowplaying';
+      v.name === 'queue';
     lastNavWasPushRef.current = !isRoot;
     setStack(prev => (isRoot ? [v] : [...prev, v]));
   }, []);
@@ -411,14 +409,10 @@ export default function App() {
     [nav, cancelPressTimer],
   );
 
-  // Expand from mini bar to fullscreen with animation.
+  // Expand from mini bar to fullscreen with animation. The overlay stays
+  // open; only the sheet state changes.
   const minimizeNowPlaying = useCallback((target: MiniState = 'mini') => {
-    // Minimizing restores the whole pre-Now-Playing stack, so back() from
-    // the return view pops to its parent instead of no-op'ing.
-    const s = stackBeforeNpRef.current;
-    stackBeforeNpRef.current = null;
-    lastNavWasPushRef.current = true;
-    setStack(s && s.length ? s : [returnViewRef.current]);
+    setNpOverlayOpen(true);
     setMiniState(target === 'hidden' ? 'hidden' : target);
   }, []);
 
@@ -426,6 +420,12 @@ export default function App() {
   // the sheet itself stays mounted as the mini bar.
   const collapseNowPlaying = useCallback((target: MiniState = 'mini') => {
     setMiniState(target === 'hidden' ? 'hidden' : target);
+  }, []);
+
+  // Close the overlay entirely. The underlying tab is already there.
+  const closeNowPlaying = useCallback(() => {
+    setNpOverlayOpen(false);
+    setMiniState('hidden');
   }, []);
 
   const back = useCallback(() => {
@@ -480,7 +480,7 @@ export default function App() {
       volIdleRef.current = null;
     }
     volModeRef.current = false;
-    knob.setMode(viewRef.current.name === 'nowplaying' ? 'nowplaying' : 'scroll');
+    knob.setMode(npOverlayOpenRef.current ? 'nowplaying' : 'scroll');
   }, []);
   const pokeVolume = useCallback(() => {
     if (volIdleRef.current !== null) window.clearTimeout(volIdleRef.current);
@@ -530,10 +530,10 @@ export default function App() {
     };
   }, [nudgeVolume, pokeVolume, enterVolume, exitVolume]);
 
-  // View changes reset the focus list and knob mode; Now Playing suspends
-  // the focus system entirely (the knob drives volume there).
+  // View changes reset the focus list and knob mode; the Now Playing overlay
+  // suspends the focus system entirely (the knob drives volume there).
   useEffect(() => {
-    const np = view.name === 'nowplaying';
+    const np = npOverlayOpen;
     focusManager.setSuspended(np);
     if (!np) {
       focusManager.refresh();
@@ -541,21 +541,21 @@ export default function App() {
     }
     if (volModeRef.current) exitVolume();
     else knob.setMode(np ? 'nowplaying' : 'scroll');
-  }, [view.name, exitVolume]);
+  }, [view.name, npOverlayOpen, exitVolume]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const v = viewRef.current;
       if (e.key === 'Escape') {
-        // Now Playing has no stack history, so Escape minimizes it.
-        if (v.name === 'nowplaying') minimizeNowPlaying();
+        // The overlay has no stack history, so Escape minimizes it.
+        if (npOverlayOpenRef.current) minimizeNowPlaying();
         else back();
         return;
       }
       if (e.key === 'm' || e.key === 'M') {
-        // In Now Playing, M dismisses the screen like Escape; preventDefault
+        // In the overlay, M dismisses it like Escape; preventDefault
         // keeps the device from treating it as its home key.
-        if (v.name === 'nowplaying') {
+        if (npOverlayOpenRef.current) {
           e.preventDefault();
           minimizeNowPlaying();
         } else if (v.name !== 'setup') {
@@ -642,31 +642,14 @@ export default function App() {
         return <Detail {...props} params={v as Extract<View, { name: 'detail' }>} />;
       case 'queue':
         return <Queue {...props} />;
-      case 'nowplaying':
-        return (
-          <NowPlaying
-            {...props}
-            onMinimize={minimizeNowPlaying}
-            onCollapse={collapseNowPlaying}
-            onDragProgress={p => {
-              const pill = pillRef.current;
-              if (pill) {
-                pill.style.opacity = String(1 - p);
-                // Disable pointer events once collapsed so the invisible
-                // pill doesn't intercept taps on the mini bar.
-                pill.style.pointerEvents = p > 0.5 ? 'none' : '';
-              }
-            }}
-          />
-        );
       case 'setup':
         return <Setup {...props} onSaved={() => void load()} />;
     }
   };
 
-  // Show the tab bar when not in fullscreen Now Playing. When collapsed to
-  // mini/sliver, the user sees Home behind the sheet, so the tabs must show.
-  const showChrome = credsState === 'ready' && (view.name !== 'nowplaying' || miniState !== 'hidden');
+  // The tab bar is always visible when creds are ready: Now Playing is an
+  // overlay on top of the tabs, never a view that replaces them.
+  const showChrome = credsState === 'ready';
   const current = player.current();
 
   // The view-enter animation replays only on pushes, never on root
@@ -695,31 +678,41 @@ export default function App() {
           ) : null}
           <div
             key={view.name}
-            className={`relative min-h-0 w-full flex-1 ${viewAnim} ${
-              expandAnim && view.name === 'nowplaying' ? 'animate-mini-expand' : ''
-            }`}
+            className={`relative min-h-0 w-full flex-1 ${viewAnim}`}
           >
-            {/* Previous view behind Now Playing so the area revealed
-            during drag-down isn't black (covered fully at fullscreen). */}
-            {view.name === 'nowplaying' && (stackBeforeNpRef.current?.length ?? 0) > 0 ? (
-              <div className="absolute inset-0">
-                {renderView(stackBeforeNpRef.current![stackBeforeNpRef.current!.length - 1])}
-              </div>
-            ) : null}
             {renderView()}
           </div>
         </FocusScope>
-        {/* Queue handle: fullscreen Now Playing only. The mini bar / sliver
-            own the bottom edge everywhere else. */}
-        {current && view.name === 'nowplaying' && miniState === 'hidden' ? (
-          <div ref={pillRef} className="absolute bottom-1 left-1/2 z-20 -translate-x-1/2">
-            <QueueHandle onOpen={() => setQueueOpen(true)} />
+        {/* Now Playing overlay: fullscreen panel on top of the tabs. When
+            collapsed to mini/sliver, the underlying tab shows through. */}
+        {npOverlayOpen ? (
+          <div className="fixed inset-0 z-40">
+            <NowPlaying
+              jf={jf as never}
+              nav={nav}
+              back={back}
+              openMenu={openMenu}
+              onMinimize={minimizeNowPlaying}
+              onCollapse={collapseNowPlaying}
+              onClose={closeNowPlaying}
+              onDragProgress={p => {
+                const pill = pillRef.current;
+                if (pill) {
+                  pill.style.opacity = String(1 - p);
+                  // Disable pointer events once collapsed so the invisible
+                  // pill doesn't intercept taps on the mini bar.
+                  pill.style.pointerEvents = p > 0.5 ? 'none' : '';
+                }
+              }}
+            />
           </div>
         ) : null}
-        {/* No separate MiniBar component: the Now Playing sheet itself is
-            the mini bar. SeekSliver (2px) is kept for app-start playback. */}
-        {current && view.name !== 'nowplaying' && miniState === 'sliver' ? (
-          <SeekSliver onExpand={() => setMiniState('mini')} />
+        {/* Queue handle: fullscreen overlay only. The mini bar / sliver
+            own the bottom edge everywhere else. */}
+        {current && npOverlayOpen && miniState === 'hidden' ? (
+          <div ref={pillRef} className="absolute bottom-1 left-1/2 z-50 -translate-x-1/2">
+            <QueueHandle onOpen={() => setQueueOpen(true)} />
+          </div>
         ) : null}
         {queueOpen ? (
           <QueueSheet
