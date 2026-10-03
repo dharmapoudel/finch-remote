@@ -333,7 +333,7 @@ function InfoPanel({
                 <div className="w-6 shrink-0" aria-hidden="true" />
               )}
               <div className="morph-fade-early">
-              <Ghost label="Previous" onClick={() => void player.prev()}>
+              <Ghost label="Previous" onClick={() => void player.prev()} tint={accent?.fill}>
                 <TransportGlyph
                   name="skip"
                   className={small ? 'h-8 w-8 -scale-x-100' : 'h-7 w-7 -scale-x-100'}
@@ -363,7 +363,7 @@ function InfoPanel({
               </Ghost>
               </div>
               <div ref={morphNextRef} className="ml-6">
-              <Ghost label="Next" onClick={() => void player.next()}>
+              <Ghost label="Next" onClick={() => void player.next()} tint={accent?.fill}>
                 <TransportGlyph name="skip" className={small ? 'h-8 w-8' : 'h-7 w-7'} />
               </Ghost>
               </div>
