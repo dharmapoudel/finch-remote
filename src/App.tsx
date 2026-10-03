@@ -359,6 +359,9 @@ export default function App() {
     if (v.name === 'nowplaying' && cur.name !== 'nowplaying' && cur.name !== 'setup') {
       returnViewRef.current = cur;
       stackBeforeNpRef.current = stackRef.current;
+      // Opening fullscreen resets the sheet state; otherwise a stale
+      // 'mini' would keep the tab bar visible in fullscreen.
+      setMiniState('hidden');
     }
     const isRoot =
       v.name === 'home' ||
