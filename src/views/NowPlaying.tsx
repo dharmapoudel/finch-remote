@@ -111,7 +111,7 @@ function SyncedLyrics({ lines }: { lines: LyricLineVM[] }) {
   });
 
   return (
-    <div className="h-full w-full overflow-y-auto px-6 py-8">
+    <div className="h-full w-full overflow-y-auto bg-[#14161c] px-6 py-8 pb-[40vh]">
       {lines.map((l, i) => {
         const isActive = i === active;
         return (
@@ -453,6 +453,11 @@ export default function NowPlaying({
     const m = el.style.transform.match(/translateY\((-?\d+(?:\.\d+)?)px\)/);
     const y = m ? Math.max(0, parseFloat(m[1])) : 0;
     updateLayers(y);
+    // Belt-and-suspenders: if App says we're collapsed, force-hide lyrics
+    // even if the transform read was stale.
+    if (miniState && miniState !== 'hidden' && lyricsOverlayRef.current) {
+      lyricsOverlayRef.current.style.display = 'none';
+    }
     const H = el.clientHeight || window.innerHeight;
     const miniY = H - MINI_H;
     const sliverY = H - SLIVER_H;
@@ -737,7 +742,7 @@ export default function NowPlaying({
     } else if (fromMini) {
       // Tap on the track area (not buttons) -> fullscreen.
       const t = d?.target as HTMLElement | null;
-      const onInteractive = !!t?.closest?.('button, a, [data-focusable], input');
+      const onInteractive = !!t?.closest?.('button, a, input');
       const isTap = Math.abs(dy) < 10 && dt < 300 && !onInteractive;
       if (isTap) {
         targetY = 0; target = null;
@@ -979,6 +984,29 @@ export default function NowPlaying({
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         onTouchCancel={onTouchEnd}
+        onClick={e => {
+          // Fallback tap-to-fullscreen: if the touch gesture didn't catch a
+          // tap on the track area in mini/sliver, the click will.
+          const t = e.target as HTMLElement;
+          if (t.closest('button, a, input')) return;
+          const el = sheetRef.current;
+          if (!el) return;
+          const m = el.style.transform.match(/translateY\((-?\d+(?:\.\d+)?)px\)/);
+          const y = m ? Math.max(0, parseFloat(m[1])) : 0;
+          const H = el.clientHeight || window.innerHeight;
+          const miniY = H - MINI_H;
+          if (y >= miniY * 0.5) {
+            // In mini/sliver: tap opens fullscreen.
+            const ease = 'cubic-bezier(0.32, 0.72, 0, 1)';
+            el.style.transition = `transform 0.35s ${ease}`;
+            el.style.transform = 'translateY(0px)';
+            updateLayers(0);
+            window.setTimeout(() => {
+              if (onCollapse) onCollapse('hidden');
+              else onMinimize('hidden');
+            }, 340);
+          }
+        }}
       >
         <div ref={fullLayerRef} className="absolute inset-0 flex">
           <div ref={leftPanelRef} className="flex h-full shrink-0 items-start justify-start overflow-hidden" style={{ width: '55%' }}>

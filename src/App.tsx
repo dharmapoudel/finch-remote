@@ -711,7 +711,7 @@ export default function App() {
         {/* Queue handle: fullscreen overlay only. The mini bar / sliver
             own the bottom edge everywhere else. */}
         {current && npOverlayOpen && miniState === 'hidden' ? (
-          <div ref={pillRef} className="absolute bottom-1 left-1/2 z-50 -translate-x-1/2">
+          <div ref={pillRef} className="absolute bottom-0 left-1/2 z-50 -translate-x-1/2">
             <QueueHandle onOpen={() => setQueueOpen(true)} />
           </div>
         ) : null}

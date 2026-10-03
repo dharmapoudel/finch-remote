@@ -24,7 +24,7 @@ export function QueueHandle({ onOpen }: { onOpen: () => void }) {
       }}
       className="absolute bottom-1 left-1/2 z-20 -translate-x-1/2 p-3"
     >
-      <div data-glow-target className="h-2 w-16 rounded-full bg-white/30" />
+      <div data-glow-target className="h-2 w-12 rounded-full bg-white/20" />
     </button>
   );
 }
