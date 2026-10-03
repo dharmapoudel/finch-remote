@@ -29,7 +29,7 @@ import NowPlaying from './views/NowPlaying';
 import { QueueHandle, QueueSheet } from './QueueSheet';
 import Queue from './views/Queue';
 import Setup, { CREDS_KEY, type StoredCreds } from './views/Setup';
-import { MiniBar, SeekSliver, type MiniState } from './MiniBar';
+import { SeekSliver, type MiniState } from './MiniBar';
 
 // Phone settings page "Clear cached data" writes this config key with a
 // timestamp; the device wipes its caches when it sees it (real-time while
@@ -44,17 +44,11 @@ const NAV_ITEMS: { view: View; icon: 'home' | 'playlist' | 'album' | 'library'; 
   { view: { name: 'library' }, icon: 'library', label: 'Library' },
 ];
 
-// o-music-style top tab strip: each tab's 2px line sits directly below its
-// hardware preset button, the way o-music's tick marks do. o-music hardcodes
-// the preset centers as PRESET_AT = [12.5, 37.5, 62.5, 87.5] (evenly spread
-// with matching margins), so these are used verbatim instead of measured.
-// The label sits under its line, like o-music's COVER. The bottom nav bar is
-// gone to reclaim vertical space. The tab's icon is revealed only while its
-// button is held: a touch press reveals it for the tap's duration; a hardware
-// preset short-press switches tabs with no reveal at all, and only a held
-// (long-press) preset reveals the icon — it drops down under the line, then
-// slides back up and hides when the press is lifted. The active tab is shown
-// by its leaf-green line and bright label.
+// o-music-style top tab strip: each tab's 2px line sits below its hardware
+// preset button. The tab's icon is revealed only while its button is held:
+// a touch press reveals it for the tap's duration; a hardware preset
+// short-press switches tabs with no reveal, and only a held preset reveals
+// the icon until lift. The active tab shows a leaf-green line.
 const TAB_X = ['12.5%', '37.5%', '62.5%', '87.5%']; // o-music PRESET_AT, all four used
 function TopTabs({
   view,
@@ -69,8 +63,8 @@ function TopTabs({
   pressedIdx: number | null;
   setPressedIdx: (i: number | null) => void;
 }) {
-  // Detail drill-ins keep their origin tab highlighted (Library for
-  // library-drilled details); the favorites and recent-tracks lists highlight Home.
+  // Detail drill-ins keep their origin tab highlighted; the favorites and
+  // recent-tracks lists highlight Home.
   const activeIdx =
     view.name === 'home'
       ? 0
@@ -110,17 +104,11 @@ function TopTabs({
             style={{ left: TAB_X[i] }}
             className="absolute top-0 flex w-[22%] -translate-x-1/2 flex-col items-center px-2 pb-2 outline-none focus:outline-none active:bg-white/5"
           >
-            {/* the line, touching the very top of the screen, centered
-                directly below its hardware preset button */}
             <div
               className={`h-[2px] rounded-full transition-all duration-300 ${
                 active ? 'w-12 bg-leaf' : 'w-8 bg-white/20'
               }`}
             />
-            {/* the icon: revealed while a touch press is held, or while a
-                hardware preset is held past the long-press threshold; a
-                short preset press switches tabs with no reveal. Pushes down
-                above the line; slides back up and hides on lift */}
             <div
               className={`grid transition-all duration-300 ease-out ${
                 pressed ? 'mt-1.5 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
@@ -136,7 +124,6 @@ function TopTabs({
                 </div>
               </div>
             </div>
-            {/* the label, o-music COVER style */}
             <span
               className={`mt-1 text-xs tracking-[0.22em] uppercase transition-colors duration-300 ${
                 active ? 'font-semibold text-white' : 'text-white/45'
@@ -151,11 +138,10 @@ function TopTabs({
   );
 }
 
-// The single blurred-art backdrop behind the transparent top tab strip.
-// Rendered once at App level, OUTSIDE the animated view wrapper: the
-// view-enter animation's transform traps position:fixed descendants inside
-// the view mid-flight, which flashed a black band behind the tabs on every
-// tab switch. Tab views publish their art via publishAmbient().
+// Blurred-art backdrop behind the transparent top tab strip, rendered once
+// at App level OUTSIDE the animated view wrapper: the view-enter animation's
+// transform traps position:fixed descendants mid-flight, flashing a black
+// band behind the tabs on every tab switch.
 function TabBackdrop() {
   const { src, accent } = useAmbient();
   return <AmbientArt src={src} accent={accent} fixed vibrant fullHeight />;
@@ -171,10 +157,9 @@ async function readCreds(): Promise<Creds | null> {
       return null;
     }
   };
-  // Two sources can hold credentials: the phone's config (written by the
-  // settings page) and the device store (written by on-device Quick Connect
-  // / API-key setup). The newest sign-in wins; a newer-but-empty source
-  // means "signed out" and beats an older valid one.
+  // Two credential sources: the phone's config and the device store. The
+  // newest sign-in wins; a newer-but-empty source means "signed out" and
+  // beats an older valid one.
   const server = await get('server_url');
   const apiKey = await get('api_key');
   const userId = await get('user_id');
@@ -204,25 +189,21 @@ export default function App() {
   const [credsState, setCredsState] = useState<'loading' | 'missing' | 'ready'>('loading');
   const [jf, setJf] = useState<JellyfinClient | null>(null);
   const [stack, setStack] = useState<View[]>([{ name: 'home' }]);
-  // Whether the last stack change was a push (drill-in/back) rather than a
-  // root replace (tab switch). The view-enter animation replays only on
-  // pushes: 1.0.70 swapped tab content instantly, and the 1.1.0 "crossfade
-  // with a spring" made every hardware-key tab switch visibly jump. A ref
-  // (not derived per render) so later re-renders can't re-arm the animation
-  // after a tab switch.
+  // Whether the last stack change was a push rather than a root replace
+  // (tab switch). The view-enter animation replays only on pushes. A ref
+  // so later re-renders can't re-arm the animation after a tab switch.
   const lastNavWasPushRef = useRef(true);
   const [queueOpen, setQueueOpen] = useState(false);
   const [daemonUp, setDaemonUp] = useState(true);
   const menu = useMenu();
-  // Mini player state: 'mini' (bar with 20px seekbar) or 'sliver' (2px line).
-  // Set when Now Playing is dragged down; hidden while full Now Playing is open.
+  // Mini player state. Set when Now Playing is dragged down; hidden while
+  // fullscreen Now Playing is open.
   const [miniState, setMiniState] = useState<MiniState>('hidden');
   const playerRev = usePlayer();
 
-  // "Clear cached data" from the phone settings page writes this config key.
   // The device wipes all three cache layers and reloads Home fresh. The
-  // handled marker (device store) dedupes the real-time event against the
-  // startup check below, so a tap while the app is closed still lands once.
+  // handled marker dedupes the real-time event against the startup check,
+  // so a tap while the app is closed still lands once.
   const handleCacheClear = useCallback(async (flagValue: string): Promise<void> => {
     const ts = Number(flagValue) || 0;
     if (!ts) return;
@@ -255,9 +236,7 @@ export default function App() {
   stackRef.current = stack;
 
   // On app start, if a track is already playing (adopted from the phone),
-  // show the micro sliver bar at the bottom so the user knows what's playing.
-  // Runs when the player state changes; only sets sliver if we're not on
-  // Now Playing and miniState is still hidden (user hasn't dismissed it).
+  // show the micro sliver so the user knows what's playing.
   useEffect(() => {
     const t = player.current();
     if (
@@ -271,15 +250,14 @@ export default function App() {
       setMiniState('sliver');
     }
   }, [view.name, miniState, playerRev]);
-  // Where Now Playing was opened from; it minimizes back here
-  // (its nav replaces the stack, so back() can't).
+  // Where Now Playing was opened from; it minimizes back here (its nav
+  // replaces the stack, so back() can't).
   const returnViewRef = useRef<View>({ name: 'home' });
-  // The full stack from before Now Playing replaced it; minimizing
-  // restores this so back() from the return view pops to its parent
-  // instead of being a no-op on a single-item stack.
+  // The full stack from before Now Playing replaced it; minimizing restores
+  // this so back() pops to the parent instead of no-op'ing.
   const stackBeforeNpRef = useRef<View[] | null>(null);
   const pillRef = useRef<HTMLDivElement>(null);
-  const [expandAnim, setExpandAnim] = useState(false);
+  const [expandAnim] = useState(false);
 
   const load = useCallback(async () => {
     setCredsState('loading');
@@ -304,10 +282,9 @@ export default function App() {
     }
     setJf(client);
     setCredsState('ready');
-    // Re-attach to the remote session, if any; then adopt anything already
-    // playing; then, if the player is still empty, restore the last local
-    // queue so a restart doesn't lose it. Sequenced (not fire-and-forget)
-    // so each step can see what the previous one adopted.
+    // Re-attach to the remote session, adopt anything already playing, then
+    // restore the last local queue so a restart doesn't lose it. Sequenced
+    // so each step sees what the previous one adopted.
     try {
       await player.reconcileRemote();
       await player.reconcileOnResume();
@@ -317,7 +294,6 @@ export default function App() {
     }
   }, [handleCacheClear]);
 
-  // daemon link + player/volume subscriptions, once
   useEffect(() => {
     const client = getClient();
     const offLink = client.on(e => setDaemonUp(e.type !== 'close'));
@@ -329,9 +305,8 @@ export default function App() {
       });
     });
     const offErrReply = client.player.onErrorReply(reply => {
-      // playFailed carries the phone's own reason (seek rejected, stream
-      // died, gateway hiccup...). Surface it under the friendly message:
-      // it is the only diagnostic for phone-side failures.
+      // playFailed carries the phone's own reason; it is the only
+      // diagnostic for phone-side failures.
       const e = reply.error;
       player.handlePlayerError(e.type, e.type === 'playFailed' ? e.data.reason : undefined);
     });
@@ -339,9 +314,8 @@ export default function App() {
       const e = reply.error;
       player.handlePlayerError(e.type, e.type === 'playFailed' ? e.data.reason : undefined);
     });
-    // Phone Bluetooth link state: on a drop->reconnect the phone often
-    // restarts the track from the beginning, so the player heals the
-    // position when the link comes back.
+    // On a drop->reconnect the phone often restarts the track from the
+    // beginning, so the player heals the position when the link comes back.
     const offPeer = client.peer.onSnapshot(map => {
       const connected = Object.values(map).some(p => p.companion.type === 'connected');
       player.handleGateway(connected);
@@ -354,7 +328,6 @@ export default function App() {
     const offCfg = client.config.onChanged(() => {
       void load();
     });
-    // prime from the phone's current state
     client.player
       .stateGet()
       .then(res => {
@@ -380,13 +353,9 @@ export default function App() {
   }, [load]);
 
   const nav = useCallback((v: View) => {
-    // bottom-nav destinations replace the stack; drill-ins push
     const cur = viewRef.current;
-    // The stack is replaced (not pushed) when opening Now Playing, so
-    // remember where it was opened from to minimize back to it. Any
-    // non-Now-Playing view counts (album/playlist/artist detail, the full
-    // favorites/recent lists, …) — a whitelist here left returnView stale
-    // and M/swipe-down landed on the wrong screen.
+    // Now Playing's nav replaces the stack, so remember where it was opened
+    // from to minimize back to it. Any non-Now-Playing view counts.
     if (v.name === 'nowplaying' && cur.name !== 'nowplaying' && cur.name !== 'setup') {
       returnViewRef.current = cur;
       stackBeforeNpRef.current = stackRef.current;
@@ -402,10 +371,8 @@ export default function App() {
     setStack(prev => (isRoot ? [v] : [...prev, v]));
   }, []);
 
-  // which top tab is currently pressed. Drives the icon push-down reveal; a
-  // hardware press never sets :active on the on-screen button, so this is
-  // state-driven instead of CSS-only. (defined after nav: pressTab navigates
-  // on hardware presses.)
+  // Which top tab is currently pressed. A hardware press never sets
+  // :active on the on-screen button, so the icon reveal is state-driven.
   const [pressedIdx, setPressedIdx] = useState<number | null>(null);
   const pressClearRef = useRef<number | null>(null);
   const clearPressed = useCallback(() => {
@@ -415,9 +382,6 @@ export default function App() {
     }
     setPressedIdx(null);
   }, []);
-  // Long-press threshold before a HELD hardware preset button reveals its
-  // tab icon. A short press just switches tabs (the bar animates as usual)
-  // with no icon reveal; holding past this reveals the icon until lift.
   const pressTimerRef = useRef<number | null>(null);
   const cancelPressTimer = useCallback(() => {
     if (pressTimerRef.current !== null) {
@@ -427,13 +391,13 @@ export default function App() {
   }, []);
   const pressTab = useCallback(
     (i: number, v: View, isRepeat: boolean) => {
-      if (isRepeat) return; // key auto-repeat: the first keydown already handled it
-      nav(v); // short press: switch tabs immediately, no icon reveal
+      if (isRepeat) return;
+      nav(v);
       cancelPressTimer();
       pressTimerRef.current = window.setTimeout(() => {
         pressTimerRef.current = null;
-        setPressedIdx(i); // held past the threshold: reveal the icon
-        // safety: if the device never sends keyup, don't leave the icon stuck
+        setPressedIdx(i);
+        // If the device never sends keyup, don't leave the icon stuck.
         if (pressClearRef.current !== null) window.clearTimeout(pressClearRef.current);
         pressClearRef.current = window.setTimeout(() => {
           pressClearRef.current = null;
@@ -445,31 +409,19 @@ export default function App() {
   );
 
   // Expand from mini bar to fullscreen with animation.
-  // The NowPlaying view slides up from the mini bar position, creating
-  // the illusion that the mini panel expanded to fullscreen.
-  const expandFromMini = useCallback(() => {
-    setExpandAnim(true);
-    setMiniState('hidden');
-    // Navigate to nowplaying; the view will animate in via expandAnim.
-    stackBeforeNpRef.current = null;
-    lastNavWasPushRef.current = true;
-    setStack(prev => {
-      const last = prev[prev.length - 1];
-      if (last?.name === 'nowplaying') return prev;
-      return [...prev, { name: 'nowplaying' }];
-    });
-    // Clear the anim flag after the transition.
-    window.setTimeout(() => setExpandAnim(false), 400);
-  }, []);
-
   const minimizeNowPlaying = useCallback((target: MiniState = 'mini') => {
-    // Now Playing replaced the stack on open, so minimizing restores the
-    // whole pre-Now-Playing stack — back from the return view pops to its
-    // parent instead of being stuck on a single-item stack.
+    // Minimizing restores the whole pre-Now-Playing stack, so back() from
+    // the return view pops to its parent instead of no-op'ing.
     const s = stackBeforeNpRef.current;
     stackBeforeNpRef.current = null;
     lastNavWasPushRef.current = true;
     setStack(s && s.length ? s : [returnViewRef.current]);
+    setMiniState(target === 'hidden' ? 'hidden' : target);
+  }, []);
+
+  // Collapse the Now Playing sheet to mini/sliver WITHOUT navigating away:
+  // the sheet itself stays mounted as the mini bar.
+  const collapseNowPlaying = useCallback((target: MiniState = 'mini') => {
     setMiniState(target === 'hidden' ? 'hidden' : target);
   }, []);
 
@@ -514,12 +466,9 @@ export default function App() {
   }, []);
 
   // ---- knob volume mode ----
-  // The knob normally drives focus (scroll). A knob hold switches it to
-  // volume mode: detents nudge the phone's volume (the OS shows its own
-  // volume UI, so Finch renders nothing); a knob tap or 3s idle exits back
-  // to the view's mode. On the Now Playing screen the knob is always on
-  // volume (mode 'nowplaying'): turning it nudges volume directly, tap
-  // toggles playback, and hold is a no-op.
+  // A knob hold switches to volume mode (detents nudge the phone's volume);
+  // a tap or 3s idle exits. On Now Playing the knob is always on volume:
+  // detents nudge directly, tap toggles playback, hold is a no-op.
   const volModeRef = useRef(false);
   const volIdleRef = useRef<number | null>(null);
   const exitVolume = useCallback(() => {
@@ -540,18 +489,9 @@ export default function App() {
     pokeVolume();
   }, [pokeVolume]);
 
-  // ---- knob/focus engine, mount once ----
   // The knob engine owns ALL wheel events (capture, passive:false,
-  // preventDefault) and Enter keydown/keyup. App routes detents/taps/holds
-  // by knob mode:
-  // - volume: detents nudge volume (nudgeVolume is kept from before),
-  //   tap exits, hold is a no-op while already in volume mode;
-  // - scroll: detents are consumed by focusManager's own subscription
-  //   (focusManager.attach() gates on knob.mode === 'scroll'), tap
-  //   activates the settled item;
-  // - nowplaying: detents nudge volume directly (no separate volume mode
-  //   needed on that screen), tap toggles playback, hold is a no-op;
-  // - hold outside volume/nowplaying mode enters volume mode.
+  // preventDefault) and Enter keydown/keyup; App routes detents/taps/holds
+  // by knob mode.
   useEffect(() => {
     knob.attach();
     focusManager.attach();
@@ -587,10 +527,8 @@ export default function App() {
     };
   }, [nudgeVolume, pokeVolume, enterVolume, exitVolume]);
 
-  // View changes reset the focus list and select the knob mode for the new
-  // view. Changing view exits volume mode (keep it simple). Now Playing
-  // suspends the focus system entirely — the knob drives volume there, so
-  // there is no focus order on that screen.
+  // View changes reset the focus list and knob mode; Now Playing suspends
+  // the focus system entirely (the knob drives volume there).
   useEffect(() => {
     const np = view.name === 'nowplaying';
     focusManager.setSuspended(np);
@@ -606,17 +544,14 @@ export default function App() {
     const onKey = (e: KeyboardEvent): void => {
       const v = viewRef.current;
       if (e.key === 'Escape') {
-        // Now Playing has no stack history (its nav replaced the stack),
-        // so Escape minimizes it instead of popping.
+        // Now Playing has no stack history, so Escape minimizes it.
         if (v.name === 'nowplaying') minimizeNowPlaying();
         else back();
         return;
       }
       if (e.key === 'm' || e.key === 'M') {
-        // In Now Playing, M acts as back: dismiss the screen (like Escape)
-        // instead of leaving it — the app stays open on the previous view.
-        // preventDefault consumes the key so the device doesn't treat it as
-        // its home key and close the app.
+        // In Now Playing, M dismisses the screen like Escape; preventDefault
+        // keeps the device from treating it as its home key.
         if (v.name === 'nowplaying') {
           e.preventDefault();
           minimizeNowPlaying();
@@ -626,10 +561,9 @@ export default function App() {
         }
         return;
       }
-      // preset shortcuts, ignored while typing in the on-screen keyboard views.
-      // a short press just switches tabs (the bar animates as usual); holding
-      // the button past the long-press threshold reveals the tab's icon,
-      // since a hardware press never gives the on-screen button a CSS :active.
+      // Preset shortcuts 1-4, ignored while typing. A short press switches
+      // tabs; holding past the long-press threshold reveals the tab's icon
+      // (a hardware press never gives the on-screen button a CSS :active).
       if (v.name === 'setup') return;
       if (e.key === '1') pressTab(0, { name: 'home' }, e.repeat);
       else if (e.key === '2') pressTab(1, { name: 'playlists' }, e.repeat);
@@ -637,9 +571,8 @@ export default function App() {
       else if (e.key === '4') pressTab(3, { name: 'library' }, e.repeat);
     };
     window.addEventListener('keydown', onKey);
-    // lifting a hardware preset button cancels a pending long-press reveal
-    // and ends an active one; the timeout in pressTab covers devices that
-    // never send keyup
+    // Lifting a hardware preset button cancels a pending long-press reveal;
+    // the timeout in pressTab covers devices that never send keyup.
     const onKeyUp = (e: KeyboardEvent): void => {
       if (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4') {
         cancelPressTimer();
@@ -657,11 +590,9 @@ export default function App() {
     () =>
       jf
         ? {
-            // Tile/squircle art downloads at squircle size: tiles render at
-            // 120-140px (rows at 52-56px), so 160px is crisp with far fewer
-            // bytes over the Bluetooth link than the old 256. Higher quality
-            // (512) is fetched on demand only — drill-in headers and the Now
-            // Playing hero pass an explicit width.
+            // Tiles render at 120-140px, so 160px is crisp with far fewer
+            // bytes over Bluetooth than 256. 512 is fetched on demand only
+            // (drill-in headers, Now Playing hero).
             trackArt: (t, w = 160) => jf.trackImage(t, w),
             albumArt: (a, w = 160) => (a.imageTag ? jf.imageUrl(a.id, w) : null),
             artistArt: (a, w = 160) => (a.imageTag ? jf.imageUrl(a.id, w) : null),
@@ -671,7 +602,7 @@ export default function App() {
     [jf],
   );
 
-  const renderView = (): React.ReactNode => {
+  const renderView = (v: View = view): React.ReactNode => {
     if (credsState === 'loading') {
       return (
         <div className="flex h-full items-center justify-center">
@@ -683,7 +614,7 @@ export default function App() {
       return <Setup jf={jf as never} nav={nav} back={back} openMenu={openMenu} onSaved={() => void load()} />;
     }
     const props = { jf, nav, back, openMenu };
-    switch (view.name) {
+    switch (v.name) {
       case 'home':
         return <Home {...props} />;
       case 'library':
@@ -695,17 +626,17 @@ export default function App() {
       case 'playlists':
         return <PlaylistsHome {...props} />;
       case 'playlistlist':
-        return <PlaylistListView {...props} kind={view.kind} />;
+        return <PlaylistListView {...props} kind={v.kind} />;
       case 'albums':
         return <AlbumsHome {...props} />;
       case 'albumlist':
-        return <AlbumListView {...props} kind={view.kind} />;
+        return <AlbumListView {...props} kind={v.kind} />;
       case 'favorites':
         return <Favorites {...props} />;
       case 'recenttracks':
         return <RecentTracks {...props} />;
       case 'detail':
-        return <Detail {...props} params={view} />;
+        return <Detail {...props} params={v as Extract<View, { name: 'detail' }>} />;
       case 'queue':
         return <Queue {...props} />;
       case 'nowplaying':
@@ -713,9 +644,15 @@ export default function App() {
           <NowPlaying
             {...props}
             onMinimize={minimizeNowPlaying}
+            onCollapse={collapseNowPlaying}
             onDragProgress={p => {
               const pill = pillRef.current;
-              if (pill) pill.style.opacity = String(1 - p);
+              if (pill) {
+                pill.style.opacity = String(1 - p);
+                // Disable pointer events once collapsed so the invisible
+                // pill doesn't intercept taps on the mini bar.
+                pill.style.pointerEvents = p > 0.5 ? 'none' : '';
+              }
             }}
           />
         );
@@ -727,10 +664,8 @@ export default function App() {
   const showChrome = credsState === 'ready' && view.name !== 'nowplaying';
   const current = player.current();
 
-  // The view-enter animation replays only when the last navigation was a
-  // push (drill-in/back/Now Playing), never on a root replace (switching
-  // between the four main tabs via hardware keys or the tab strip) — that
-  // path swaps content instantly, like 1.0.70 did.
+  // The view-enter animation replays only on pushes, never on root
+  // replaces (tab switches swap content instantly).
   const viewAnim =
     lastNavWasPushRef.current ? 'animate-view-enter' : '';
 
@@ -755,26 +690,29 @@ export default function App() {
           ) : null}
           <div
             key={view.name}
-            className={`min-h-0 w-full flex-1 ${viewAnim} ${
+            className={`relative min-h-0 w-full flex-1 ${viewAnim} ${
               expandAnim && view.name === 'nowplaying' ? 'animate-mini-expand' : ''
             }`}
           >
+            {/* Previous view behind Now Playing so the area revealed
+            during drag-down isn't black (covered fully at fullscreen). */}
+            {view.name === 'nowplaying' && (stackBeforeNpRef.current?.length ?? 0) > 0 ? (
+              <div className="absolute inset-0">
+                {renderView(stackBeforeNpRef.current![stackBeforeNpRef.current!.length - 1])}
+              </div>
+            ) : null}
             {renderView()}
           </div>
         </FocusScope>
-        {/* Queue handle: only on the fullscreen Now Playing screen. Hidden
-            everywhere else (the mini bar / sliver own the bottom edge there). */}
-        {current && view.name === 'nowplaying' ? (
+        {/* Queue handle: fullscreen Now Playing only. The mini bar / sliver
+            own the bottom edge everywhere else. */}
+        {current && view.name === 'nowplaying' && miniState === 'hidden' ? (
           <div ref={pillRef} className="absolute bottom-1 left-1/2 z-20 -translate-x-1/2">
             <QueueHandle onOpen={() => setQueueOpen(true)} />
           </div>
         ) : null}
-        {/* Mini player: shown when Now Playing was dragged down (miniState),
-            or when the sliver was swiped up. Hidden while the full
-            Now Playing screen is open. */}
-        {current && view.name !== 'nowplaying' && miniState === 'mini' && !expandAnim ? (
-          <MiniBar onExpand={expandFromMini} onCollapse={() => setMiniState('sliver')} />
-        ) : null}
+        {/* No separate MiniBar component: the Now Playing sheet itself is
+            the mini bar. SeekSliver (2px) is kept for app-start playback. */}
         {current && view.name !== 'nowplaying' && miniState === 'sliver' ? (
           <SeekSliver onExpand={() => setMiniState('mini')} />
         ) : null}

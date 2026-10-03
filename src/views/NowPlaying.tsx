@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX, type TouchEvent as RTouchEvent } from 'react';
-import { Ghost, Icon, IconBtn, ProgressBar, TransportGlyph, readBlurSig, useArt, useCachedArt, usePlayer, usePortrait, warmArt } from '../components';
+import { Ghost, Icon, ProgressBar, TransportGlyph, readBlurSig, useArt, useCachedArt, usePlayer, usePortrait, warmArt } from '../components';
 import { useAccent, type Accent } from '../accent';
 import type { LyricLineVM } from '../jellyfin';
 import { player } from '../player';
@@ -7,12 +7,9 @@ import { knob } from '../fx/knob';
 import { RemoteSheet } from '../RemoteSheet';
 import type { ViewProps } from '../nav';
 
-// ThumbHash-style hero: no WebGL, no bloom. The 160px art (already fetched
-// for the backdrop/tint) is blown up and heavily blurred as the placeholder
-// — visually what a decoded ThumbHash looks like (a real ThumbHash needs
-// server-side hashes, which Jellyfin doesn't serve; blurring the small art
-// we already hold is the honest equivalent). The 512px hero fades in over
-// it when it arrives. Keyed by src so a track change replays the reveal.
+// ThumbHash-style hero: the 160px art (already fetched for the backdrop)
+// is blown up and heavily blurred as the placeholder; the 512px hero fades
+// in over it when it arrives. Keyed by src so a track change replays the reveal.
 export function ThumbHashHero({
   lowSrc,
   highSrc,
@@ -47,20 +44,18 @@ export function ThumbHashHero({
   );
 }
 
-// Lyrics view state. Shape borrowed from Ousa-Music-Player's useLyrics:
-// loading / none / timed / plain are all ordinary outcomes, none an error.
+// Shape borrowed from Ousa-Music-Player's useLyrics; none is an ordinary
+// outcome, not an error.
 type LyricsState =
   | { state: 'loading' }
   | { state: 'none' }
   | { state: 'synced'; lines: LyricLineVM[] }
   | { state: 'plain'; lines: LyricLineVM[] };
 
-// Signal the Glass Overlay (injected into this same document) to hold its
-// ambient screensaver off while the Now Playing screen is up. The overlay
-// raises the ambient screen after N seconds with no input events, but here
-// the user is watching, not touching. Sticky window flag first (the overlay
-// may boot after this view mounts), then the DOM event for changes; both
-// are cleared on unmount so the screensaver can return afterwards.
+// Hold the Glass Overlay's ambient screensaver off while Now Playing is up
+// (the user is watching, not touching). Sticky window flag first (the
+// overlay may boot after this view mounts), then the DOM event; both are
+// cleared on unmount.
 const AMBIENT_INHIBIT_EVENT = 'bridgething:ambient-inhibit';
 const AMBIENT_INHIBIT_FLAG = '__bridgethingAmbientInhibit';
 
@@ -73,8 +68,8 @@ function setAmbientInhibit(inhibit: boolean): void {
   window.dispatchEvent(new CustomEvent(AMBIENT_INHIBIT_EVENT, { detail: { inhibit } }));
 }
 
-// The line that should be lit right now: the last one that has started.
-// Binary search, since a synced track can carry hundreds of lines.
+// The last line that has started. Binary search: a synced track can carry
+// hundreds of lines.
 function activeLineIndex(lines: LyricLineVM[], posMs: number): number {
   let lo = 0;
   let hi = lines.length - 1;
@@ -97,9 +92,8 @@ function SyncedLyrics({ lines }: { lines: LyricLineVM[] }) {
   const lineRefs = useRef(new Map<number, HTMLButtonElement>());
   const lastActive = useRef(-2);
 
-  // Re-evaluate the active line a few times a second while playing. The
-  // player extrapolates position locally between daemon snapshots, so
-  // positionNow() stays fresh without any snapshot traffic.
+  // Re-evaluate a few times a second while playing; positionNow() stays
+  // fresh without any snapshot traffic.
   useEffect(() => {
     if (!player.intentPlaying) return;
     const id = window.setInterval(() => force(n => n + 1), 250);
@@ -111,8 +105,7 @@ function SyncedLyrics({ lines }: { lines: LyricLineVM[] }) {
   useEffect(() => {
     if (active !== lastActive.current && active >= 0) {
       lastActive.current = active;
-      // Smooth-glide to the new line; the old instant jump is what made
-      // the lyrics feel out of sync with the audio.
+      // Smooth-glide to the new line; instant jumps felt out of sync.
       lineRefs.current.get(active)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
   });
@@ -142,9 +135,9 @@ function SyncedLyrics({ lines }: { lines: LyricLineVM[] }) {
   );
 }
 
-// Pure renderer — the lyrics for the current track are fetched once in
-// NowPlaying (per-track cached in the client), so the toggle can dim when
-// the track has none and the tab opens instantly.
+// Lyrics for the current track are fetched once in NowPlaying (per-track
+// cached in the client), so the toggle can dim when the track has none and
+// the tab opens instantly.
 function LyricsPanel({ lyrics }: { lyrics: LyricsState }) {
   if (lyrics.state === 'loading') {
     return (
@@ -176,8 +169,6 @@ function LyricsPanel({ lyrics }: { lyrics: LyricsState }) {
   return <SyncedLyrics lines={lyrics.lines} />;
 }
 
-// Device clock for the top of the info panel, o-music style: 15px mono with
-// a blinking colon, left-aligned like the reference arrangement.
 function Clock() {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -206,10 +197,7 @@ function Clock() {
   );
 }
 
-// Right-hand info column, ported from o-music's Widget landscape layout:
-// clock top-left, titles, seek bar + times, transport, and heart + lyrics
-// icons where o-music puts its volume bar. The background is the blurred
-// album art washed with a color pulled off the cover.
+// Right-hand info column, ported from o-music's Widget landscape layout.
 function InfoPanel({
   isFavorite,
   onToggleFav,
@@ -220,6 +208,16 @@ function InfoPanel({
   accent,
   bgArtUrl,
   onOpenRemote,
+  morphTitleRef,
+  morphArtistRef,
+  morphProgressRef,
+  morphPlayRef,
+  morphNextRef,
+  mainRowRef,
+  innerColRef,
+  contentWrapRef,
+  titlesRef,
+  controlsRef,
 }: {
   isFavorite: boolean;
   onToggleFav: () => void;
@@ -230,6 +228,16 @@ function InfoPanel({
   accent: Accent | null;
   bgArtUrl: string | null;
   onOpenRemote: () => void;
+  morphTitleRef?: React.RefObject<HTMLDivElement | null>;
+  morphArtistRef?: React.RefObject<HTMLDivElement | null>;
+  morphProgressRef?: React.RefObject<HTMLDivElement | null>;
+  morphPlayRef?: React.RefObject<HTMLDivElement | null>;
+  morphNextRef?: React.RefObject<HTMLDivElement | null>;
+  mainRowRef?: React.RefObject<HTMLDivElement | null>;
+  innerColRef?: React.RefObject<HTMLDivElement | null>;
+  contentWrapRef?: React.RefObject<HTMLDivElement | null>;
+  titlesRef?: React.RefObject<HTMLDivElement | null>;
+  controlsRef?: React.RefObject<HTMLDivElement | null>;
 }) {
   usePlayer();
   const portrait = usePortrait();
@@ -242,28 +250,29 @@ function InfoPanel({
 
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
-      {bgArtUrl ? (
-        <img
-          src={bgArtUrl}
-          alt=""
-          aria-hidden="true"
-          draggable={false}
-          className="absolute inset-0 h-full w-full scale-125 object-cover blur-2xl brightness-[0.4]"
+      <div className="morph-fade-early absolute inset-0" aria-hidden="true">
+        {bgArtUrl ? (
+          <img
+            src={bgArtUrl}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="absolute inset-0 h-full w-full scale-125 object-cover blur-2xl brightness-[0.4]"
+          />
+        ) : null}
+        <div
+          className="absolute inset-0 backdrop-blur-md"
+          style={{
+            background: accent
+              ? `linear-gradient(155deg, color-mix(in oklab, ${accent.fill} 18%, rgba(10,12,14,0.72)), rgba(10,12,14,0.72) 78%)`
+              : 'rgba(10,12,14,0.72)',
+          }}
         />
-      ) : null}
-      <div
-        className="absolute inset-0 backdrop-blur-md"
-        style={{
-          background: accent
-            ? `linear-gradient(155deg, color-mix(in oklab, ${accent.fill} 18%, rgba(10,12,14,0.72)), rgba(10,12,14,0.72) 78%)`
-            : 'rgba(10,12,14,0.72)',
-        }}
-      />
-      <div className="relative flex min-h-0 flex-1 flex-col px-5 py-4">
-        <div className="flex min-h-0 flex-1 flex-col gap-5">
-          {/* the track takes the space above; the controls hold the bottom edge whatever is left */}
-          <div className="flex min-h-0 flex-1 flex-col py-1">
-            <div className="flex shrink-0 items-center justify-between">
+      </div>
+      <div ref={contentWrapRef} className="relative flex min-h-0 flex-1 flex-col px-5 py-4">
+        <div ref={mainRowRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-5">
+          <div ref={innerColRef} className="flex min-h-0 min-w-0 flex-1 flex-col py-1 transition-all duration-200">
+            <div className="morph-fade-early flex shrink-0 items-center justify-between">
               <Clock />
               <button
                 type="button"
@@ -275,37 +284,35 @@ function InfoPanel({
               </button>
             </div>
 
-            {/* titles block: fixed 202px so the seekbar below NEVER moves
-                (same position as 1.1.29); titles vertically centered inside,
-                nudged slightly down */}
-            <div className="flex h-[202px] shrink-0 flex-col justify-center pt-[24px]">
+            {/* Fixed 202px so the seekbar below never moves. */}
+            <div ref={titlesRef} className="flex h-[202px] min-w-0 shrink-0 flex-col justify-center pt-[24px] transition-all duration-200">
               <div className="min-w-0 shrink-0">
               <div
+                ref={morphTitleRef}
                 className={`line-clamp-3 font-display font-semibold leading-[1.2] tracking-display text-[#efefef] ${
                   small ? 'text-[1.75rem]' : 'text-[1.875rem]'
                 }`}
               >
                 {t.name}
               </div>
-              <div className="mt-1.5 line-clamp-2 text-[1.25rem] text-white/55">{t.artist}</div>
+              <div ref={morphArtistRef} className="mt-1.5 line-clamp-2 text-[1.25rem] text-white/55">{t.artist}</div>
               {player.remoteActive ? (
-                <div className="mt-1 text-[1.05rem] text-leaf">Playing on {player.remoteDevice}</div>
+                <div data-device-label className="mt-1 text-[1.05rem] text-leaf">Playing on {player.remoteDevice}</div>
               ) : null}
               </div>
             </div>
 
-            <div className="min-h-0 flex-1" aria-hidden="true" />
-            {/* seekbar centered where the controls bar used to sit, nudged down 20px */}
-            <div className="flex min-h-0 flex-[2] flex-col justify-center pt-[40px]">
-              <div className="shrink-0">
+            <div className="morph-fade-early min-h-0 flex-1" aria-hidden="true" />
+            <div className="morph-fade-early flex min-h-0 flex-[2] flex-col justify-center pt-[40px]">
+              <div ref={morphProgressRef} className="morph-fade-early shrink-0">
                 <ProgressBar onSeek={ms => void player.seekTo(ms)} />
               </div>
             </div>
           </div>
 
-          {/* bottom row: lyrics, prev/play/next, heart — all in one row */}
-          <div className="mb-[15px] flex w-full shrink-0 items-center justify-between">
+          <div ref={controlsRef} className="mb-[15px] flex w-full shrink-0 items-center justify-between transition-all duration-200">
               {lyricsSupported !== false ? (
+                <div className="morph-fade-early">
                 <Ghost
                   label={
                     hasLyrics
@@ -321,15 +328,19 @@ function InfoPanel({
                 >
                   <Icon name="lyrics" size={24} />
                 </Ghost>
+                </div>
               ) : (
                 <div className="w-6 shrink-0" aria-hidden="true" />
               )}
+              <div className="morph-fade-early">
               <Ghost label="Previous" onClick={() => void player.prev()}>
                 <TransportGlyph
                   name="skip"
                   className={small ? 'h-8 w-8 -scale-x-100' : 'h-7 w-7 -scale-x-100'}
                 />
               </Ghost>
+              </div>
+              <div ref={morphPlayRef}>
               <Ghost
                 label={player.intentPlaying ? 'Pause' : 'Play'}
                 onClick={() => void player.toggle()}
@@ -350,9 +361,13 @@ function InfoPanel({
                   </span>
                 )}
               </Ghost>
+              </div>
+              <div ref={morphNextRef} className="ml-6">
               <Ghost label="Next" onClick={() => void player.next()}>
                 <TransportGlyph name="skip" className={small ? 'h-8 w-8' : 'h-7 w-7'} />
               </Ghost>
+              </div>
+              <div className="morph-fade-early">
               <Ghost
                 label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                 onClick={onToggleFav}
@@ -361,6 +376,7 @@ function InfoPanel({
               >
                 <Icon name={isFavorite ? 'heartFill' : 'heart'} size={24} />
               </Ghost>
+              </div>
             </div>
 
             {player.error ? (
@@ -383,50 +399,42 @@ export default function NowPlaying({
   jf,
   nav,
   onMinimize,
+  onCollapse,
   onDragProgress,
 }: ViewProps & {
   onMinimize: (target?: 'mini' | 'sliver') => void;
+  onCollapse?: (target?: 'mini' | 'sliver') => void;
   onDragProgress?: (progress: number) => void;
 }) {
   const playerRev = usePlayer();
   const art = useArt();
   const portrait = usePortrait();
   const [remoteOpen, setRemoteOpen] = useState(false);
-  // Bidirectional sync: while Now Playing is visible, subscribe to the
-  // Jellyfin WebSocket for instant push updates when the track changes
-  // directly in the phone app. Falls back to a poll if the socket isn't open.
   useEffect(() => {
     const unsub = player.subscribeWsPushes();
-    // If WS wasn't available, do one immediate poll to catch up.
     if (player.remoteActive) player.refreshRemoteNow();
     return unsub;
   }, []);
-  // Auto-prompt for a playback device when the player needs one (no remote
-  // found on startup and local audio not explicitly allowed).
+  // Auto-prompt for a playback device when the player needs one.
   useEffect(() => {
     if (player.needsDeviceChoice) setRemoteOpen(true);
   }, [playerRev]);
   useEffect(() => {
     if (!remoteOpen && player.needsDeviceChoice) {
-      // Sheet dismissed without choosing: clear the flag so it doesn't
-      // re-open on every render. The user can reopen via the device button.
+      // Clear the flag so it doesn't re-open on every render.
       player.needsDeviceChoice = false;
     }
   }, [remoteOpen]);
   const [lyricsSupported, setLyricsSupported] = useState<boolean | null>(null);
   const [lyrics, setLyrics] = useState<LyricsState>({ state: 'loading' });
-  // Sticky preference owned by the player (persisted across restarts):
-  // usePlayer() above re-renders us when it changes.
+  // Sticky preference owned by the player (persisted across restarts).
   const lyricsTab = player.lyricsTab;
   const t = player.current();
   const trackId = t?.id;
   const artPanelRef = useRef<HTMLDivElement>(null);
 
-  // ---- knob: volume on this screen ----
-  // The knob drives the phone's volume while this view is up (no focus
-  // order, no scrub): detents are handled by App's volume nudger, tap
-  // toggles playback, and long-press is a no-op (volume is already on
-  // the knob, so there is no separate volume mode to enter).
+  // The knob drives the phone's volume on this screen: tap toggles
+  // playback, long-press is a no-op (no separate volume mode to enter).
   useEffect(() => {
     knob.setMode('nowplaying');
     return () => {
@@ -434,9 +442,6 @@ export default function NowPlaying({
     };
   }, []);
 
-  // While this view is mounted the Now Playing screen is up: hold the Glass
-  // Overlay's ambient screensaver off (see setAmbientInhibit above) until we
-  // unmount.
   useEffect(() => {
     setAmbientInhibit(true);
     const onHide = (): void => setAmbientInhibit(false);
@@ -447,33 +452,33 @@ export default function NowPlaying({
     };
   }, []);
 
-  // The lyrics tab is a sticky preference, not per-track state: it stays on
-  // across track changes, and the panel simply shows the album art for
-  // tracks that have no lyrics, switching back to lyrics on its own when a
-  // track with lyrics comes up.
+  // The lyrics tab is sticky, not per-track: it stays on across track
+  // changes, showing album art for tracks without lyrics.
   const hasLyrics = lyrics.state === 'synced' || lyrics.state === 'plain';
   const showLyrics = lyricsTab && hasLyrics;
 
-  // Draggable sheet: same panel morphs from full → mini → sliver.
-  // The sheet follows the finger 1:1. Within the sheet, three layers
-  // crossfade: the full UI fades out as the mini bar (real MiniBar
-  // component, pixel-identical) fades in at the sheet's top — which lands
-  // at the screen bottom when the sheet is dragged to the mini position.
-  // The sliver is the same ProgressBar clipped to 2px. No panel swap
-  // during drag; the handoff to App.tsx's persistent bar happens after
-  // snap, at the identical position.
+  // Draggable sheet: the same panel morphs from full → mini → sliver.
+  // No separate mini bar — the main panel's elements ARE the mini bar.
   const sheetRef = useRef<HTMLDivElement>(null);
   const fullLayerRef = useRef<HTMLDivElement>(null);
-  const miniLayerRef = useRef<HTMLDivElement>(null);
+  const rightPanelRef = useRef<HTMLDivElement>(null);
   const sliverLayerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startY: number; dy: number } | null>(null);
-  // Refs for staggered morph elements
+  const stallTimerRef = useRef<number | null>(null);
+  const leftPanelRef = useRef<HTMLDivElement>(null);
+  const artBoxRef = useRef<HTMLDivElement>(null);
+  const lyricsOverlayRef = useRef<HTMLDivElement>(null);
+  const mainRowRef = useRef<HTMLDivElement>(null);
+  const innerColRef = useRef<HTMLDivElement>(null);
+  const contentWrapRef = useRef<HTMLDivElement>(null);
+  const titlesRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
   const miniSeekRef = useRef<HTMLDivElement>(null);
-  const miniTextRef = useRef<HTMLDivElement>(null);
-  const miniPlayRef = useRef<HTMLDivElement>(null);
-  const miniNextRef = useRef<HTMLDivElement>(null);
-  // Refs for TRUE morph: the actual fullscreen elements that transform
-  const morphArtRef = useRef<HTMLDivElement>(null);
+  const morphTitleRef = useRef<HTMLDivElement>(null);
+  const morphArtistRef = useRef<HTMLDivElement>(null);
+  const morphProgressRef = useRef<HTMLDivElement>(null);
+  const morphPlayRef = useRef<HTMLDivElement>(null);
+  const morphNextRef = useRef<HTMLDivElement>(null);
 
   const MINI_H = 84;
   const SLIVER_H = 2;
@@ -482,62 +487,131 @@ export default function NowPlaying({
     const H = window.innerHeight;
     const miniY = H - MINI_H;
     const sliverY = H - SLIVER_H;
-    // 0→1 as we drag from full to mini position
     const pMini = Math.min(1, Math.max(0, dy / miniY));
-    // 0→1 as we drag from mini to sliver position
     const pSliver = Math.min(1, Math.max(0, (dy - miniY) / Math.max(1, sliverY - miniY)));
-
-    const full = fullLayerRef.current;
-    const mini = miniLayerRef.current;
     const sliver = sliverLayerRef.current;
-    
-    // Full UI: fade out with slight scale down for morph feel.
-    // Stagger: fade quickly in first 60% of drag.
-    if (full) {
-      const pFull = Math.min(1, pMini * 1.4);
-      full.style.opacity = String(1 - pFull);
-      full.style.transform = `scale(${1 - pMini * 0.05})`;
-    }
-    
-    // Mini elements: staggered fade in.
-    // The morph: elements toggle/fade within the same panel.
-    // Seekbar first, then art, text, controls.
-    const setOp = (ref: React.RefObject<HTMLDivElement | null>, p: number) => {
-      const el = ref.current;
-      if (el) el.style.opacity = String(Math.max(0, Math.min(1, p)));
-    };
-    // Staggered thresholds: each element fades in over a sub-range of pMini
-    setOp(miniSeekRef, (pMini - 0.1) / 0.3);  // 0.1→0.4
-    // Artwork uses TRUE MORPH (geometric transform of the fullscreen element),
-    // not a fade. The miniArtRef fade is disabled — the morph handles it.
-    setOp(miniTextRef, (pMini - 0.4) / 0.3);    // 0.4→0.7
-    setOp(miniPlayRef, (pMini - 0.55) / 0.3);   // 0.55→0.85
-    setOp(miniNextRef, (pMini - 0.65) / 0.3);   // 0.65→0.95
 
-    // TRUE MORPH: the actual fullscreen artwork element scales and moves
-    // to the mini position. Same DOM node, geometric transform — not a fade.
-    if (morphArtRef.current) {
-      const scale = 1 - pMini * 0.9; // 1 → 0.1 (440px → 44px)
-      const tx = 16 * pMini; // 0 → 16px
-      const ty = 30 * pMini; // 0 → 30px
-      morphArtRef.current.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-      morphArtRef.current.style.borderRadius = `${12 * pMini}px`;
+    // Early-fade elements: fade out via opacity, then remove from layout
+    // once the fade completes (pMini >= 0.34).
+    const earlyFade = 1 - Math.min(1, pMini * 3);
+    if (fullLayerRef.current) {
+      const fades = fullLayerRef.current.querySelectorAll('.morph-fade-early');
+      fades.forEach(f => {
+        const el = f as HTMLElement;
+        el.style.opacity = String(earlyFade);
+        if (pMini >= 0.34) el.style.display = 'none';
+        else el.style.display = '';
+      });
     }
-    
-    // Mini container: ensure it's visible when any element is.
-    if (mini) mini.style.opacity = pMini > 0.05 ? '1' : '0';
-    
-    // Sliver: fade in as we go from mini to sliver, mini fades out.
-    if (sliver) sliver.style.opacity = String(pSliver);
-    if (mini && pSliver > 0) {
-      // Fade the mini elements out as sliver takes over
-      const fade = 1 - pSliver;
-      setOp(miniSeekRef, ((pMini - 0.1) / 0.3) * fade);
-      // miniArtRef removed — artwork uses TRUE MORPH, not fade
-      setOp(miniTextRef, ((pMini - 0.4) / 0.3) * fade);
-      setOp(miniPlayRef, ((pMini - 0.55) / 0.3) * fade);
-      setOp(miniNextRef, ((pMini - 0.65) / 0.3) * fade);
+    // Lyrics overlay: display:none right away on drag (no fade — fading it
+    // makes the panel jump).
+    if (lyricsOverlayRef.current) {
+      if (pMini > 0) lyricsOverlayRef.current.style.display = 'none';
+      else lyricsOverlayRef.current.style.display = '';
     }
+
+    if (leftPanelRef.current) {
+      const panelW = 440 - 380 * pMini;
+      leftPanelRef.current.style.width = `${panelW}px`;
+      leftPanelRef.current.style.background = pMini > 0 ? '#0b0d10' : '';
+    }
+    if (artBoxRef.current) {
+      const artW = Math.max(60, 440 - 380 * pMini);
+      const artH = Math.max(84, 480 - 396 * pMini);
+      artBoxRef.current.style.width = `${artW}px`;
+      artBoxRef.current.style.height = `${artH}px`;
+      // At mini the art sits below the 4px seekbar (no gap).
+      if (pMini >= 0.5) {
+        artBoxRef.current.style.marginTop = '4px';
+        artBoxRef.current.style.height = `${artH - 4}px`;
+      } else {
+        artBoxRef.current.style.marginTop = '';
+      }
+    }
+
+    const miniMode = pMini >= 0.5;
+    // Panel height interpolates 480px -> 84px with the drag, keeping the
+    // morphed bar glued to the visible area (no black gap, no snap jump).
+    const panelH = 480 - (480 - 84) * pMini;
+    if (fullLayerRef.current) {
+      fullLayerRef.current.style.height = `${panelH}px`;
+    }
+    if (leftPanelRef.current) {
+      leftPanelRef.current.style.height = `${panelH}px`;
+    }
+    if (rightPanelRef.current) {
+      rightPanelRef.current.style.height = `${panelH}px`;
+    }
+    // The content wrapper keeps its background; padding clears the seekbar.
+    if (contentWrapRef.current) {
+      const cw = contentWrapRef.current.style;
+      // Always set (not faded): at fullscreen the blurred InfoPanel covers
+      // it; as the art fades, the dark is revealed. The sheet above stays
+      // transparent so Home shows through.
+      cw.background = '#0b0d10';
+      // Ramp the top padding in with the seekbar's opacity so they never
+      // overlap mid-morph.
+      cw.paddingTop = `${4 * Math.min(1, pMini * 1.5)}px`;
+      if (miniMode) {
+        cw.paddingBottom = '0';
+      } else {
+        cw.paddingBottom = '';
+      }
+    }
+    if (innerColRef.current) {
+      innerColRef.current.style.justifyContent = miniMode ? 'center' : '';
+    }
+    if (titlesRef.current) {
+      titlesRef.current.style.height = miniMode ? 'auto' : '';
+      titlesRef.current.style.paddingTop = miniMode ? '0' : '';
+      titlesRef.current.style.paddingRight = miniMode ? '130px' : '';
+      // Device label ("Playing on …") is not needed in the mini bar.
+      const dl = titlesRef.current.querySelector('[data-device-label]') as HTMLElement | null;
+      if (dl) dl.style.display = miniMode ? 'none' : '';
+    }
+    if (morphTitleRef.current) {
+      morphTitleRef.current.style.fontSize = pMini > 0 ? `${30 - 14 * pMini}px` : '';
+    }
+    if (morphArtistRef.current) {
+      morphArtistRef.current.style.fontSize = pMini > 0 ? `${20 - 6 * pMini}px` : '';
+    }
+    if (controlsRef.current) {
+      const c = controlsRef.current.style;
+      // No CSS transition during the morph: animating position
+      // (static <-> absolute) makes the buttons jump.
+      c.transition = 'none';
+      // Right-align from the start of the drag so the pause button never
+      // floats left first.
+      if (pMini > 0.05) {
+        c.position = 'absolute';
+        c.right = '16px';
+        c.top = '50%';
+        c.transform = 'translateY(-50%)';
+        c.marginBottom = '0';
+        c.width = 'auto';
+        c.justifyContent = 'flex-start';
+        c.gap = '';
+      } else {
+        c.position = '';
+        c.right = '';
+        c.top = '';
+        c.transform = '';
+        c.marginBottom = '';
+        c.width = '';
+        c.justifyContent = '';
+        c.gap = '';
+      }
+    }
+
+    // Mini seekbar: persists through the sliver phase; everything else fades.
+    if (miniSeekRef.current) {
+      miniSeekRef.current.style.opacity = String(Math.min(1, pMini * 1.5));
+    }
+
+    if (sliver) sliver.style.opacity = '0';
+    const fade = 1 - pSliver;
+    if (leftPanelRef.current) leftPanelRef.current.style.opacity = String(fade);
+    if (mainRowRef.current) mainRowRef.current.style.opacity = String(fade);
   };
 
   const onTouchStart = (e: RTouchEvent): void => {
@@ -560,24 +634,42 @@ export default function NowPlaying({
     d.dy = dy;
     el.style.transform = `translateY(${dy}px)`;
     updateLayers(dy);
-    // Fade the queue pill out as we drag down (it lives in App.tsx).
     onDragProgress?.(Math.min(1, dy / (window.innerHeight * 0.3)));
+    // Stall detector: if the finger is truly stuck (no move for 500ms),
+    // snap instead of hanging. Slow drags keep resetting the timer.
+    if (stallTimerRef.current) window.clearTimeout(stallTimerRef.current);
+    const lastDy = dy;
+    stallTimerRef.current = window.setTimeout(() => {
+      if (dragRef.current && dragRef.current.dy === lastDy) onTouchEnd();
+    }, 500);
   };
   const onTouchEnd = (): void => {
     const d = dragRef.current;
     const el = sheetRef.current;
     dragRef.current = null;
-    if (!d || !el) return;
+    if (stallTimerRef.current) {
+      window.clearTimeout(stallTimerRef.current);
+      stallTimerRef.current = null;
+    }
+    if (!el) return;
+    // Recover the position from the element's transform if the drag ref was
+    // lost (interrupted touch), so we always snap somewhere.
+    let dy: number;
+    if (d) {
+      dy = d.dy;
+    } else {
+      const m = el.style.transform.match(/translateY\((-?\d+(?:\.\d+)?)px\)/);
+      dy = m ? Math.max(0, parseFloat(m[1])) : 0;
+      if (dy < 2) return;
+    }
     const H = window.innerHeight;
     const miniY = H - MINI_H;
     const sliverY = H - SLIVER_H;
-    const dy = d.dy;
-    // Snap to nearest: full, mini, or sliver.
     let targetY: number;
     let target: 'mini' | 'sliver' | null;
     if (dy < miniY * 0.5) {
       targetY = 0;
-      target = null; // snap back to full
+      target = null;
     } else if (dy < (miniY + sliverY) / 2) {
       targetY = miniY;
       target = 'mini';
@@ -591,33 +683,33 @@ export default function NowPlaying({
     el.style.transform = `translateY(${targetY}px)`;
     updateLayers(targetY);
     if (target) {
-      // Let the snap animation finish, then hand off to the persistent
-      // mini/sliver in App.tsx — at the identical position, so no jump.
-      window.setTimeout(() => onMinimize(target), 340);
+      // The sheet STAYS mounted at mini/sliver with its morphed elements;
+      // just record miniState so the App-level bar appears if the user
+      // navigates away. No handoff, no fade-in of a separate bar.
+      window.setTimeout(() => {
+        if (onCollapse) onCollapse(target);
+        else onMinimize(target);
+      }, 340);
     } else {
-      // Snapped back to full: reset layers and restore the queue pill.
       onDragProgress?.(0);
       window.setTimeout(() => updateLayers(0), 350);
     }
   };
 
-  // Full-bleed artwork for the hero panel, served from the shared blob cache.
-  // A small copy doubles as the blurred lyrics backdrop (cheap to blur).
-  // TWO PASSES, in this order: the 160px art downloads FIRST and paints the
-  // blurred ThumbHash placeholder immediately; only once it is in hand (or
-  // failed) does the 512px hero start. This ordering is load-bearing: the
-  // art lane is strictly serial, so requesting the 512 first would block
-  // the 160 behind it and the screen would stay dark until the big download
-  // finished — exactly what shuffle-play showed on a cold cache.
+  // Full-bleed artwork, served from the shared blob cache. Two passes, in
+  // this order: the 160px art downloads FIRST and paints the blurred
+  // placeholder immediately; only then does the 512px hero start. This
+  // ordering is load-bearing: the art lane is strictly serial, so fetching
+  // the 512 first would block the 160 behind it and the screen would stay
+  // dark until the big download finished.
   const { url: bgArt, failed: bgFailed } = useCachedArt(t ? (art?.trackArt(t, 160) ?? null) : null);
   const heroSrc = t && (bgArt || bgFailed) ? (art?.trackArt(t, 512) ?? null) : null;
   const { url: heroArt } = useCachedArt(heroSrc);
 
   // Instant placeholder: a stored 16x16 blur signature paints with zero
-  // network while the 160px downloads (one local kv lookup, ~ms). Keyed by
-  // track id, falling back to the album id — the same preference the art
-  // itself uses. Cleared on track change so the old track's colors never
-  // linger; the 160px blur takes over seamlessly when it lands.
+  // network while the 160px downloads. Keyed by track id, falling back to
+  // the album id; cleared on track change so the old track's colors never
+  // linger.
   const [sigUrl, setSigUrl] = useState<string | null>(null);
   useEffect(() => {
     setSigUrl(null);
@@ -631,11 +723,8 @@ export default function NowPlaying({
     };
   }, [trackId, t?.albumId]);
 
-  // Shuffle/skipping ahead stays instant: pre-warm the next few tracks'
-  // small art at back priority. By the time the user (or auto-advance) gets
-  // there, the first pass is served from cache and only the 512 needs the
-  // network. Re-runs when the track or the queue length changes; warmArt
-  // no-ops on already-cached/inflight urls.
+  // Pre-warm the next few tracks' small art at back priority so
+  // shuffle/skipping ahead stays instant.
   const queueLen = player.queue.length;
   useEffect(() => {
     if (!art || player.index < 0) return;
@@ -646,10 +735,8 @@ export default function NowPlaying({
     if (upcoming.length) warmArt(upcoming, 5);
   }, [art, trackId, queueLen, playerRev]);
 
-  // Accent color pulled off the cover for the info panel wash + the
-  // play/pause tint, o-music style.
-  // Accent tint is extracted from the small art: it arrives over Bluetooth far
-  // sooner than the hero, so the wash shows up with the first paint.
+  // Accent tint for the info panel wash + play/pause tint, extracted from
+  // the small art: it arrives over Bluetooth far sooner than the hero.
   const accent = useAccent(bgArt);
 
   // Lyrics need server >= 10.9; hide the toggle entirely on older servers.
@@ -663,9 +750,8 @@ export default function NowPlaying({
     };
   }, [jf]);
 
-  // Fetch the current track's lyrics as soon as the track changes (one
-  // request per track, cached in the client) so the toggle can dim when
-  // the track has none and the lyrics tab opens instantly.
+  // Fetch the current track's lyrics on track change (one request per track,
+  // cached in the client) so the toggle dims when the track has none.
   useEffect(() => {
     if (!trackId || lyricsSupported === false) {
       setLyrics({ state: 'none' });
@@ -726,28 +812,36 @@ export default function NowPlaying({
     );
   }
 
-  const artPanel = showLyrics ? (
-    <div className="relative h-full w-full overflow-hidden bg-[#14161c]">
-      {bgArt ?? sigUrl ? (
-        <img
-          src={(bgArt ?? sigUrl)!}
-          alt=""
-          aria-hidden="true"
-          draggable={false}
-          className="absolute inset-0 h-full w-full scale-125 object-cover blur-2xl brightness-[0.4]"
-        />
-      ) : null}
-      <div className="relative h-full w-full">
-        <LyricsPanel lyrics={lyrics} />
-      </div>
-    </div>
-  ) : heroArt || bgArt || sigUrl ? (
+  // The left panel always holds artwork; lyrics render as an overlay on
+  // top, so hiding them mid-drag swaps no content and causes no flicker.
+  const artworkContent = heroArt || bgArt || sigUrl ? (
     <div className="relative h-full w-full overflow-hidden">
       <ThumbHashHero lowSrc={bgArt ?? sigUrl} highSrc={heroArt} alt={t.album || t.name} />
     </div>
   ) : (
     <div className="flex h-full w-full items-center justify-center bg-zinc-900">
       <Icon name="note" size={96} className="text-white/15" />
+    </div>
+  );
+  const artPanel = (
+    <div className="relative h-full w-full overflow-hidden">
+      {artworkContent}
+      {showLyrics ? (
+        <div ref={lyricsOverlayRef} className="absolute inset-0 bg-[#14161c]">
+          {bgArt ?? sigUrl ? (
+            <img
+              src={(bgArt ?? sigUrl)!}
+              alt=""
+              aria-hidden="true"
+              draggable={false}
+              className="absolute inset-0 h-full w-full scale-125 object-cover blur-2xl brightness-[0.4]"
+            />
+          ) : null}
+          <div className="relative h-full w-full">
+            <LyricsPanel lyrics={lyrics} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 
@@ -762,6 +856,16 @@ export default function NowPlaying({
       accent={accent}
       bgArtUrl={bgArt}
       onOpenRemote={() => setRemoteOpen(true)}
+      morphTitleRef={morphTitleRef}
+      morphArtistRef={morphArtistRef}
+      morphProgressRef={morphProgressRef}
+      morphPlayRef={morphPlayRef}
+      morphNextRef={morphNextRef}
+      mainRowRef={mainRowRef}
+      innerColRef={innerColRef}
+      contentWrapRef={contentWrapRef}
+      titlesRef={titlesRef}
+      controlsRef={controlsRef}
     />
   );
 
@@ -779,35 +883,6 @@ export default function NowPlaying({
     );
   }
 
-  // Inline mini UI for the morph — same structure as MiniBar, but with
-  // individually controllable elements for staggered fade/scale.
-  // This is NOT a separate panel; it's the same sheet's elements toggling.
-  const miniMorph = t ? (
-    <div className="bg-black/55 backdrop-blur-md">
-      <div ref={miniSeekRef} className="flex h-5 w-full items-center px-4 opacity-0">
-        <ProgressBar onSeek={() => {}} dot={false} />
-      </div>
-      <div className="flex items-center gap-3 px-4 py-2">
-        {/* Artwork is TRUE MORPHED from the fullscreen element (morphArtRef).
-            This spacer reserves the 44px slot; the morphed art lands here. */}
-        <div className="h-11 w-11 shrink-0" />
-        <div ref={miniTextRef} className="min-w-0 flex-1 opacity-0">
-          <div className="truncate text-base font-medium text-white">{t.name}</div>
-          <div className="truncate text-sm text-white/60">{t.artist}</div>
-        </div>
-        <div ref={miniPlayRef} className="opacity-0">
-          <IconBtn size={48} label="Play" onClick={() => {}}>
-            <Icon name={player.intentPlaying ? 'pause' : 'play'} size={24} />
-          </IconBtn>
-        </div>
-        <div ref={miniNextRef} className="opacity-0">
-          <IconBtn size={48} label="Next" onClick={() => {}}>
-            <Icon name="next" size={24} />
-          </IconBtn>
-        </div>
-      </div>
-    </div>
-  ) : null;
 
   return (
     <>
@@ -817,28 +892,24 @@ export default function NowPlaying({
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
       >
-        {/* Full UI layer — fades out as we drag toward mini.
-            NOTE: artwork is in its own morph layer below, not here. */}
         <div ref={fullLayerRef} className="absolute inset-0 flex">
-          <div className="h-full w-[55%] shrink-0" />
-          <div className="h-full min-w-0 flex-1">{infoPanel}</div>
+          <div ref={leftPanelRef} className="flex h-full shrink-0 items-start justify-start overflow-hidden" style={{ width: '55%' }}>
+            <div ref={artBoxRef} className="overflow-hidden" style={{ width: '100%', height: '100%' }}>
+              <div ref={artPanelRef} className="h-full w-full overflow-hidden">
+                {artPanel}
+              </div>
+            </div>
+          </div>
+          <div ref={rightPanelRef} className="h-full min-w-0 flex-1">{infoPanel}</div>
         </div>
 
-        {/* Artwork MORPH layer — the SAME element from fullscreen scales and
-            moves to the mini position. This is a true morph, not a crossfade. */}
-        <div ref={morphArtRef} className="absolute left-0 top-0 h-full w-[55%] overflow-hidden" style={{ transformOrigin: 'top left' }}>
-          <div ref={artPanelRef} className="h-full w-full overflow-hidden">
-            {artPanel}
+        <div ref={miniSeekRef} className="pointer-events-none absolute inset-x-0 top-0 opacity-0">
+          <div className="flex h-1 w-full items-center">
+            <ProgressBar onSeek={() => {}} dot={false} showTimes={false} />
           </div>
         </div>
-        {/* Mini morph layer — inline mini UI with staggered elements.
-            At the sheet's top; lands at screen bottom when dragged to mini.
-            pointer-events-none: visual morph only. */}
-        <div ref={miniLayerRef} className="pointer-events-none absolute inset-x-0 top-0">
-          {miniMorph}
-        </div>
-        {/* Sliver layer — same ProgressBar clipped to 2px, read-only */}
         <div ref={sliverLayerRef} className="pointer-events-none absolute inset-x-0 top-0 opacity-0">
           <div className="h-[2px] w-full overflow-hidden">
             <div className="h-[3px] w-full">

@@ -977,10 +977,12 @@ export function ProgressBar({
   onSeek,
   dot = true,
   interactive = true,
+  showTimes = true,
 }: {
   onSeek: (ms: number) => void;
   dot?: boolean;
   interactive?: boolean;
+  showTimes?: boolean;
 }) {
   usePlayer();
   const barRef = useRef<HTMLDivElement>(null);
@@ -1079,10 +1081,12 @@ export function ProgressBar({
           />
         )}
       </div>
+      {showTimes ? (
       <div className="mt-2 flex justify-between font-mono text-[0.75rem] tabular-nums text-white/35">
         <span>{fmtTime(shown)}</span>
         <span>-{fmtTime(Math.max(0, dur - shown))}</span>
       </div>
+      ) : null}
     </div>
   );
 }
