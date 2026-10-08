@@ -1,733 +1,815 @@
-// Jellyfin REST client. Every call tunnels through the phone via
-// client.net.fetch, so it works with no CORS and away from home as long as
-// the phone can reach the server. Auth rides two ways on every request:
-// the modern `Authorization: MediaBrowser ...` header with the token
-// embedded (the only header form Jellyfin honors once legacy authorization
-// is disabled — every X-Emby-* header is silently ignored there), and the
-// `ApiKey` query param (capital A — the lowercase `api_key` variant is a
-// legacy alias and is ignored too; the query param is required for stream
-// and image URLs, where no headers can be sent).
+import type { BridgethingClient } from '@bridgething/client';
 
-import { getClient } from './client';
+/**
+ * Minimal Jellyfin REST client. The Car Thing has no network of its own, so
+ * every request is tunnelled through the companion phone with
+ * `client.net.fetch`. Jellyfin is a plain HTTP(S) JSON API.
+ *
+ * The Car Thing is a remote: it never plays audio itself. It browses the
+ * library and drives a Jellyfin "session" (the Jellyfin app on your phone,
+ * Finamp, Jellyfin Web on a TV, a Kodi box, ...) through the Sessions API.
+ */
 
-export const FINCH_VERSION = '0.1.11';
+export const APP_NAME = 'Finch';
+export const APP_VERSION = '1.4.4';
+export const DEVICE_NAME = 'Car Thing';
 
-// Trailing slashes turn every path into a double-slash (//Users/...) which
-// some servers and reverse proxies reject — strip them once, up front.
-export function normalizeServer(raw: string): string {
-  return raw.trim().replace(/\/+$/, '');
-}
-
-export interface Creds {
-  server: string;
-  apiKey: string;
+export type Credentials = {
+  serverUrl: string;
+  token: string;
   userId: string;
-}
+  deviceId: string;
+};
 
-export interface Track {
-  id: string;
-  name: string;
-  albumId: string | null;
-  album: string;
-  artist: string;
-  durationMs: number;
-  isFavorite: boolean;
-  playCount: number;
-  imageTag: string | null;
-  albumImageTag: string | null;
-}
+export type ItemKind = 'MusicAlbum' | 'MusicArtist' | 'MusicGenre' | 'Playlist' | 'Audio' | 'Folder' | string;
 
-export interface Album {
-  id: string;
-  name: string;
-  artist: string;
-  year: number | null;
-  songCount: number;
-  imageTag: string | null;
-  isFavorite: boolean;
-}
-
-export interface Artist {
-  id: string;
-  name: string;
-  imageTag: string | null;
-}
-
-export interface Playlist {
-  id: string;
-  name: string;
-  imageTag: string | null;
-  songCount: number;
-}
-
-export interface Genre {
-  id: string;
-  name: string;
-}
-
-export interface SearchHits {
-  tracks: Track[];
-  albums: Album[];
-  artists: Artist[];
-}
-
-// Lyrics. Jellyfin 10.9+ extracts embedded lyrics (ID3 USLT, Vorbis LYRICS,
-// …) during scans and serves them at GET /Audio/{itemId}/Lyrics as a
-// LyricDto: { Metadata: { IsSynced, Offset, … }, Lyrics: [{ Text, Start }] }.
-// Times are 100ns ticks (ms = ticks / 10_000). LyricLine has NO End field —
-// a line runs until the next line starts. 404 = no lyrics for the track.
-export interface LyricLineVM {
-  startMs: number; // -1 when the line carries no timestamp (unsynced)
-  endMs: number; // derived from the next line's start; -1 when unsynced
-  text: string;
-}
-
-export interface ParsedLyrics {
-  lines: LyricLineVM[];
-  isSynced: boolean;
-}
-
-interface RawLyricLine {
-  Text?: string;
-  Start?: number | null;
-  Cues?: unknown;
-}
-
-interface RawLyricDto {
-  Metadata?: {
-    IsSynced?: boolean | null;
-    Offset?: number | null; // lyric offset vs audio, in ticks
-  };
-  Lyrics?: RawLyricLine[];
-}
-
-const TICKS_PER_MS = 10_000;
-
-function parseLyricDto(dto: RawLyricDto, durationMs: number): ParsedLyrics | null {
-  const raw = (dto.Lyrics ?? []).filter(l => (l.Text ?? '').trim().length > 0);
-  if (!raw.length) return null;
-  // Offset shifts every line relative to the audio; Jellyfin reports it in ticks.
-  const offsetMs = Math.round((dto.Metadata?.Offset ?? 0) / TICKS_PER_MS);
-  const lines: LyricLineVM[] = raw.map(l => ({
-    startMs: l.Start != null ? Math.max(0, Math.round(l.Start / TICKS_PER_MS) + offsetMs) : -1,
-    endMs: -1,
-    text: (l.Text ?? '').trim(),
-  }));
-  const synced = lines.some(l => l.startMs >= 0);
-  if (synced) {
-    for (let i = 0; i < lines.length; i++) {
-      lines[i].endMs =
-        i + 1 < lines.length
-          ? lines[i + 1].startMs
-          : durationMs > 0
-            ? durationMs
-            : lines[i].startMs + 60_000;
-    }
-  }
-  return { lines, isSynced: synced && dto.Metadata?.IsSynced !== false };
-}
-
-export class JellyfinError extends Error {
-  readonly status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
-
-// True when the server rejected the credentials (as opposed to a network or
-// server error) — the UI uses this to offer a reconnect path.
-export function isAuthError(e: unknown): boolean {
-  return e instanceof JellyfinError && (e.status === 401 || e.status === 403);
-}
-
-interface RawSession {
-  Id?: string;
-  UserId?: string;
-  DeviceId?: string;
-  LastActivityDate?: string;
-  NowPlayingItem?: RawItem | null;
-  PlayState?: { IsPaused?: boolean; PositionTicks?: number } | null;
-}
-
-interface RawItem {
+export type Item = {
   Id: string;
   Name: string;
-  Type?: string;
-  AlbumId?: string;
-  Album?: string;
-  Artists?: string[];
+  Type: ItemKind;
   AlbumArtist?: string;
+  Artists?: string[];
+  Album?: string;
+  AlbumId?: string;
   RunTimeTicks?: number;
-  IndexNumber?: number;
-  ParentIndexNumber?: number;
   ProductionYear?: number;
   ChildCount?: number;
+  IndexNumber?: number;
   ImageTags?: Record<string, string>;
   AlbumPrimaryImageTag?: string;
-  UserData?: { IsFavorite?: boolean; PlayCount?: number; Played?: boolean };
-}
+  UserData?: { IsFavorite?: boolean; Played?: boolean; PlayCount?: number; LastPlayedDate?: string };
+  /** playlists (1.4.3): when the playlist was last saved; with ChildCount it
+   *  tells the playlist index which playlists changed */
+  DateLastSaved?: string;
+  /** albums only, when asked for with Fields=GenreItems (genre art fallback) */
+  GenreItems?: { Id: string; Name: string }[];
+};
 
-const FETCH_TIMEOUT_MS = 15_000;
-const enc = new TextEncoder();
-const dec = new TextDecoder();
-
-// Include a snippet of the server's error body — Jellyfin/ASP.NET usually
-// names the exact complaint in it, which beats guessing from the status code.
-function errBody(body: Uint8Array): string {
-  try {
-    const t = dec.decode(body).replace(/\s+/g, ' ').trim();
-    return t ? `: ${t.slice(0, 220)}` : '';
-  } catch {
-    return '';
-  }
-}
-
-// Stable device id shared with the playback engine (player.ts uses the same
-// store key). Sent in the X-Emby-Authorization header.
-const DEVICE_ID_KEY = 'finch:device-id';
-let deviceIdCache: string | null = null;
-
-export async function finchDeviceId(): Promise<string> {
-  if (deviceIdCache) return deviceIdCache;
-  const client = getClient();
-  try {
-    const r = await client.store.get({ key: DEVICE_ID_KEY });
-    if (r.ok && r.response.value) {
-      deviceIdCache = r.response.value;
-      return deviceIdCache;
-    }
-  } catch {
-    // fall through to generate
-  }
-  deviceIdCache = crypto.randomUUID();
-  try {
-    await client.store.put({ key: DEVICE_ID_KEY, value: deviceIdCache });
-  } catch {
-    // non-fatal
-  }
-  return deviceIdCache;
-}
-
-function cleanServer(s: string): string {
-  return s.trim().replace(/\/+$/, '');
-}
-
-export function normalizeTrack(raw: RawItem): Track {
-  return {
-    id: raw.Id,
-    name: raw.Name,
-    albumId: raw.AlbumId ?? null,
-    album: raw.Album ?? '',
-    artist: raw.Artists?.join(', ') ?? raw.AlbumArtist ?? 'Unknown artist',
-    durationMs: Math.round((raw.RunTimeTicks ?? 0) / 10_000),
-    isFavorite: raw.UserData?.IsFavorite ?? false,
-    playCount: raw.UserData?.PlayCount ?? 0,
-    imageTag: raw.ImageTags?.Primary ?? null,
-    albumImageTag: raw.AlbumPrimaryImageTag ?? null,
+export type Session = {
+  Id: string;
+  DeviceId: string;
+  DeviceName: string;
+  Client: string;
+  UserName?: string;
+  SupportsRemoteControl: boolean;
+  SupportedCommands?: string[];
+  LastActivityDate?: string;
+  /** when the player last sent a progress report (server clock, ISO) */
+  LastPlaybackCheckIn?: string;
+  NowPlayingItem?: Item;
+  /** added by Finch: best estimate of the playhead at local time `positionAt` */
+  positionMs?: number;
+  positionAt?: number;
+  PlayState?: {
+    PositionTicks?: number;
+    IsPaused?: boolean;
+    IsMuted?: boolean;
+    VolumeLevel?: number;
+    RepeatMode?: 'RepeatNone' | 'RepeatAll' | 'RepeatOne';
+    ShuffleMode?: 'Sorted' | 'Shuffle';
   };
+  NowPlayingQueue?: { Id: string }[];
+};
+
+export type LyricLine = { text: string; startMs: number | null };
+export type Lyrics = { lines: LyricLine[]; synced: boolean };
+
+export type Page<T> = { Items: T[]; TotalRecordCount: number };
+
+export const TICKS_PER_MS = 10_000;
+
+export class JellyfinError extends Error {
+  constructor(
+    message: string,
+    readonly status: number | null = null,
+  ) {
+    super(message);
+  }
 }
 
-export function normalizeAlbum(raw: RawItem): Album {
-  return {
-    id: raw.Id,
-    name: raw.Name,
-    artist: raw.AlbumArtist ?? raw.Artists?.join(', ') ?? 'Unknown artist',
-    year: raw.ProductionYear ?? null,
-    songCount: raw.ChildCount ?? 0,
-    imageTag: raw.ImageTags?.Primary ?? null,
-    isFavorite: raw.UserData?.IsFavorite ?? false,
-  };
+/** `MediaBrowser ...` authorization header Jellyfin expects from every client. */
+export function authHeader(deviceId: string, token?: string): string {
+  const parts = [
+    `Client="${APP_NAME}"`,
+    `Device="${DEVICE_NAME}"`,
+    `DeviceId="${deviceId}"`,
+    `Version="${APP_VERSION}"`,
+  ];
+  if (token) parts.push(`Token="${token}"`);
+  return `MediaBrowser ${parts.join(', ')}`;
 }
 
-export function normalizeArtist(raw: RawItem): Artist {
-  return { id: raw.Id, name: raw.Name, imageTag: raw.ImageTags?.Primary ?? null };
+export function normalizeServerUrl(raw: string): string {
+  let url = raw.trim();
+  if (!url) return '';
+  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
+  return url.replace(/\/+$/, '');
 }
 
-export function normalizePlaylist(raw: RawItem): Playlist {
-  return {
-    id: raw.Id,
-    name: raw.Name,
-    imageTag: raw.ImageTags?.Primary ?? null,
-    songCount: raw.ChildCount ?? 0,
-  };
+function qs(params: Record<string, string | number | boolean | undefined | null>): string {
+  const out = Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join('&');
+  return out ? `?${out}` : '';
 }
 
-export class JellyfinClient {
-  private creds: Creds;
+let serverDatesAlbums: boolean | null = null;
+let fgInFlight = 0;
+/** Foreground Jellyfin requests in flight (browsing, polls, commands). */
+export function foregroundInFlight(): number {
+  return fgInFlight;
+}
 
-  constructor(creds: Creds) {
-    this.creds = { ...creds, server: cleanServer(creds.server) };
+// ---- 1.4.4: one gate for everything Finch sends over the phone link ----
+//
+// The Car Thing reaches Jellyfin through the phone's Bluetooth link, a few
+// tens of KB/s that every request shares. In 1.4.3 a track change set off
+// the session poll, two or three covers, lyrics and (4 s later) the recents
+// reload all at once, and the recents reload could be 300 KB; the session
+// poll then waited behind it past its 8 s timeout and Finch said it could
+// not reach the server. Now:
+//   - 'now'  (session polls, playback commands) never waits behind more than
+//            two other requests and jumps every queue;
+//   - 'normal' (browsing, artwork) runs at most two at a time;
+//   - 'low'  (recents refresh, lyrics, the playlist index) only starts when
+//            nothing else is running or waiting.
+export type Prio = 'now' | 'normal' | 'low';
+const PRIO_RANK: Record<Prio, number> = { now: 0, normal: 1, low: 2 };
+const MAX_NORMAL = 2;
+let linkActive = 0;
+const linkQueue: { rank: number; seq: number; go: () => void }[] = [];
+let linkSeq = 0;
+const linkStats = { started: 0, maxActive: 0, maxQueued: 0 };
+function canStart(rank: number): boolean {
+  if (rank === 0) return linkActive < MAX_NORMAL + 1;
+  if (rank === 1) return linkActive < MAX_NORMAL;
+  return linkActive === 0;
+}
+function pumpLink(): void {
+  linkQueue.sort((a, b) => a.rank - b.rank || a.seq - b.seq);
+  while (linkQueue.length && canStart(linkQueue[0].rank)) {
+    const next = linkQueue.shift()!;
+    linkActive++;
+    next.go();
+  }
+}
+function acquireLink(prio: Prio): Promise<void> {
+  const rank = PRIO_RANK[prio];
+  // a low request also waits while anything of higher rank is queued
+  if (canStart(rank) && !linkQueue.some(q => q.rank <= rank)) {
+    linkActive++;
+    linkStats.started++;
+    linkStats.maxActive = Math.max(linkStats.maxActive, linkActive);
+    return Promise.resolve();
+  }
+  return new Promise(resolve => {
+    linkQueue.push({
+      rank,
+      seq: linkSeq++,
+      go: () => {
+        linkStats.started++;
+        linkStats.maxActive = Math.max(linkStats.maxActive, linkActive);
+        resolve();
+      },
+    });
+    linkStats.maxQueued = Math.max(linkStats.maxQueued, linkQueue.length);
+  });
+}
+function releaseLink(): void {
+  linkActive--;
+  pumpLink();
+}
+/** Requests on the link or waiting for it (any priority). */
+export function linkBusy(): number {
+  return linkActive + linkQueue.length;
+}
+if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>).__finchLink = () => ({ active: linkActive, queued: linkQueue.length, ...linkStats });
+
+export class Jellyfin {
+  /** 1.4.4: link priority of this handle's requests (see withPriority). */
+  protected prio: Prio = 'normal';
+
+  constructor(
+    private readonly client: BridgethingClient,
+    readonly creds: Credentials,
+  ) {}
+
+  /** The same client whose requests go out at another link priority. */
+  withPriority(prio: Prio): Jellyfin {
+    if (prio === this.prio) return this;
+    const o = Object.create(this) as Jellyfin;
+    o.prio = prio;
+    return o;
   }
 
-  get server(): string {
-    return this.creds.server;
-  }
-  get userId(): string {
-    return this.creds.userId;
-  }
-
-  private url(path: string, params: Record<string, string | number | boolean> = {}): string {
-    const q = new URLSearchParams({ ApiKey: this.creds.apiKey });
-    for (const [k, v] of Object.entries(params)) q.set(k, String(v));
-    return `${this.creds.server}${path}?${q.toString()}`;
-  }
-
-  private async request<T>(
+  private async raw(
     method: 'GET' | 'POST' | 'DELETE',
     path: string,
-    params: Record<string, string | number | boolean> = {},
     body?: unknown,
-  ): Promise<T> {
-    const client = getClient();
-    // Auth rides two ways: the modern `Authorization` header with the token
-    // embedded (required — with legacy authorization disabled, Jellyfin
-    // ignores X-Emby-Token, X-Emby-Authorization and the lowercase api_key
-    // query param entirely) plus the `ApiKey` query param (capital A),
-    // which stream and image URLs need because no headers can be sent there.
-    const deviceId = await finchDeviceId();
+    timeoutMs = 8000,
+    background = false,
+    prio?: Prio,
+  ): Promise<{ status: number; body: Uint8Array; headers: { name: string; value: string }[] }> {
+    // 1.4.3: foreground traffic is counted so background work (the playlist
+    // index) can stay off the phone link while anything else is using it
+    if (!background) fgInFlight++;
+    // 1.4.4: the link gate; the request's timeout starts once it is sent
+    await acquireLink(background ? 'low' : (prio ?? this.prio));
+    try {
+      return await this.rawInner(method, path, body, timeoutMs);
+    } finally {
+      releaseLink();
+      if (!background) fgInFlight--;
+    }
+  }
+
+  private async rawInner(
+    method: 'GET' | 'POST' | 'DELETE',
+    path: string,
+    body: unknown,
+    timeoutMs: number,
+  ): Promise<{ status: number; body: Uint8Array; headers: { name: string; value: string }[] }> {
     const headers = [
-      {
-        name: 'Authorization',
-        value:
-          `MediaBrowser Client="Finch", Device="Car Thing", DeviceId="${deviceId}", ` +
-          `Version="${FINCH_VERSION}", Token="${this.creds.apiKey}"`,
-      },
+      { name: 'Authorization', value: authHeader(this.creds.deviceId, this.creds.token) },
+      { name: 'X-Emby-Token', value: this.creds.token },
+      { name: 'Accept', value: 'application/json' },
     ];
-    if (body) headers.push({ name: 'Content-Type', value: 'application/json' });
-    const res = await client.net.fetch({
+    let payload: Uint8Array | null = null;
+    if (body !== undefined) {
+      headers.push({ name: 'Content-Type', value: 'application/json' });
+      payload = new TextEncoder().encode(JSON.stringify(body));
+    } else if (method === 'POST') {
+      // some reverse proxies reject a bodyless POST without a length
+      payload = new Uint8Array(0);
+    }
+    const result = await this.client.net.fetch({
       request: {
-        url: this.url(path, params),
+        url: `${this.creds.serverUrl}${path}`,
         method,
         headers,
-        body: body ? enc.encode(JSON.stringify(body)) : null,
-        timeoutMs: FETCH_TIMEOUT_MS,
+        body: payload,
+        timeoutMs,
         redirect: 'follow',
       },
     });
-    if (!res.ok) {
-      const e = res.error;
-      const kind = 'error' in e ? (e.error.type === 'requestFailed' ? e.error.data.reason : e.error.type) : e.type;
-      throw new JellyfinError(0, `network error: ${kind}`);
+    if (!result.ok) {
+      const netErr = result.kind === 'domain' ? result.error.error : null;
+      const detail = netErr
+        ? netErr.type === 'requestFailed'
+          ? netErr.data.reason
+          : netErr.type === 'noGateway'
+            ? 'phone not connected'
+            : netErr.type
+        : result.kind;
+      throw new JellyfinError(`can't reach server (${detail})`);
     }
-    const r = res.response.response;
-    if (r.status === 401 || r.status === 403) {
-      const keyHint = this.creds.apiKey ? `${this.creds.apiKey.slice(0, 4)}…` : '(empty)';
-      throw new JellyfinError(
-        r.status,
-        `unauthorized (${r.status}): the server rejected the credentials Finch is using — ${this.creds.server} with key ${keyHint}. Re-check them in the Finch settings on your phone.`,
-      );
-    }
-    if (r.status >= 400) {
-      throw new JellyfinError(r.status, `server error ${r.status}${errBody(r.body)}`);
-    }
-    const text = dec.decode(r.body);
-    if (!text) return null as T;
+    const { status, body: resBody, headers: resHeaders } = result.response.response;
+    if (status === 401 || status === 403) throw new JellyfinError('sign-in expired, sign in again in settings', status);
+    if (status < 200 || status >= 300) throw new JellyfinError(`server returned HTTP ${status}`, status);
+    return { status, body: resBody, headers: resHeaders };
+  }
+
+  private async json<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+    const res = await this.raw(method, path, body);
+    const text = new TextDecoder().decode(res.body);
+    if (!text) return undefined as T;
     return JSON.parse(text) as T;
   }
 
-  private async items<T>(
-    params: Record<string, string | number | boolean>,
-    map: (r: RawItem) => T,
-  ): Promise<T[]> {
-    const data = await this.request<{ Items?: RawItem[] }>(
+  /** Playback commands: 'now' priority, ahead of browsing and artwork. */
+  private post(path: string, body?: unknown): Promise<unknown> {
+    return this.raw('POST', path, body, 8000, false, 'now');
+  }
+
+  // ---------- library ----------
+
+  private items(params: Record<string, string | number | boolean | undefined>): Promise<Page<Item>> {
+    return this.json<Page<Item>>(
       'GET',
-      `/Users/${this.creds.userId}/Items`,
-      { Recursive: true, ...params },
-    );
-    return (data.Items ?? []).map(map);
-  }
-
-  albums(): Promise<Album[]> {
-    return this.items({ IncludeItemTypes: 'MusicAlbum', SortBy: 'SortName', SortOrder: 'Ascending' }, normalizeAlbum);
-  }
-
-  albumTracks(albumId: string): Promise<Track[]> {
-    return this.items(
-      {
-        ParentId: albumId,
-        IncludeItemTypes: 'Audio',
-        SortBy: 'ParentIndexNumber,IndexNumber,SortName',
-        SortOrder: 'Ascending',
-      },
-      normalizeTrack,
+      `/Items${qs({
+        userId: this.creds.userId,
+        Fields: 'ChildCount,PrimaryImageAspectRatio',
+        EnableImageTypes: 'Primary',
+        ImageTypeLimit: 1,
+        EnableTotalRecordCount: true,
+        ...params,
+      })}`,
     );
   }
 
-  artists(): Promise<Artist[]> {
-    return this.items({ IncludeItemTypes: 'MusicArtist', SortBy: 'SortName', SortOrder: 'Ascending' }, normalizeArtist);
-  }
-
-  artistTracks(artistId: string): Promise<Track[]> {
-    return this.items(
-      { ArtistIds: artistId, IncludeItemTypes: 'Audio', SortBy: 'Album,SortName', SortOrder: 'Ascending' },
-      normalizeTrack,
-    );
-  }
-
-  artistAlbums(artistId: string): Promise<Album[]> {
-    return this.items(
-      { ArtistIds: artistId, IncludeItemTypes: 'MusicAlbum', SortBy: 'ProductionYear,SortName', SortOrder: 'Ascending' },
-      normalizeAlbum,
-    );
-  }
-
-  playlists(): Promise<Playlist[]> {
-    return this.items({ IncludeItemTypes: 'Playlist', SortBy: 'SortName', SortOrder: 'Ascending' }, normalizePlaylist);
-  }
-
-  playlistItems(playlistId: string): Promise<Track[]> {
-    return this.items({ ParentId: playlistId, IncludeItemTypes: 'Audio' }, normalizeTrack);
-  }
-
-  async genres(): Promise<Genre[]> {
-    const data = await this.request<{ Items?: RawItem[] }>('GET', '/MusicGenres', {
-      UserId: this.creds.userId,
+  albums(start = 0, limit = 60, sort: 'SortName' | 'DateCreated' = 'SortName'): Promise<Page<Item>> {
+    return this.items({
+      IncludeItemTypes: 'MusicAlbum',
       Recursive: true,
-    });
-    return (data.Items ?? []).map(g => ({ id: g.Id, name: g.Name }));
-  }
-
-  genreTracks(genreId: string): Promise<Track[]> {
-    return this.items({ GenreIds: genreId, IncludeItemTypes: 'Audio', SortBy: 'SortName' }, normalizeTrack);
-  }
-
-  favorites(): Promise<Track[]> {
-    return this.items({ Filters: 'IsFavorite', IncludeItemTypes: 'Audio', SortBy: 'SortName' }, normalizeTrack);
-  }
-
-  async toggleFavorite(itemId: string, favorite: boolean): Promise<void> {
-    const path = `/Users/${this.creds.userId}/FavoriteItems/${itemId}`;
-    await this.request<void>(favorite ? 'POST' : 'DELETE', path);
-  }
-
-  recentlyAddedAlbums(limit = 20): Promise<Album[]> {
-    return this.items(
-      {
-        IncludeItemTypes: 'MusicAlbum',
-        SortBy: 'DateCreated,SortName',
-        SortOrder: 'Descending',
-        Limit: limit,
-      },
-      normalizeAlbum,
-    );
-  }
-
-  recentlyPlayedTracks(limit = 20): Promise<Track[]> {
-    return this.items(
-      {
-        IncludeItemTypes: 'Audio',
-        SortBy: 'DatePlayed,SortName',
-        SortOrder: 'Descending',
-        Limit: limit,
-      },
-      normalizeTrack,
-    );
-  }
-
-  shuffleAll(limit = 200): Promise<Track[]> {
-    return this.items({ IncludeItemTypes: 'Audio', SortBy: 'Random', Limit: limit }, normalizeTrack);
-  }
-
-  async instantMixFor(itemId: string, limit = 50): Promise<Track[]> {
-    const data = await this.request<{ Items?: RawItem[] }>('GET', `/Items/${itemId}/InstantMix`, {
-      UserId: this.creds.userId,
-      IncludeItemTypes: 'Audio',
+      SortBy: sort === 'SortName' ? 'SortName' : 'DateCreated,SortName',
+      SortOrder: sort === 'SortName' ? 'Ascending' : 'Descending',
+      StartIndex: start,
       Limit: limit,
     });
-    return (data.Items ?? []).map(normalizeTrack);
   }
 
-  async searchHints(term: string): Promise<SearchHits> {
-    const data = await this.request<{ SearchHints?: RawItem[] }>('GET', '/Search/Hints', {
-      SearchTerm: term,
-      MediaTypes: 'Audio,MusicAlbum,MusicArtist',
-      Limit: 25,
+  playlists(start = 0, limit = 60): Promise<Page<Item>> {
+    return this.items({
+      IncludeItemTypes: 'Playlist',
+      Fields: 'ChildCount,PrimaryImageAspectRatio,DateLastSaved',
+      Recursive: true,
+      SortBy: 'SortName',
+      StartIndex: start,
+      Limit: limit,
     });
-    const hits: SearchHits = { tracks: [], albums: [], artists: [] };
-    for (const h of data.SearchHints ?? []) {
-      if (h.Type === 'Audio') hits.tracks.push(normalizeTrack(h));
-      else if (h.Type === 'MusicAlbum') hits.albums.push(normalizeAlbum(h));
-      else if (h.Type === 'MusicArtist') hits.artists.push(normalizeArtist(h));
+  }
+
+  favoriteTracks(start = 0, limit = 100): Promise<Page<Item>> {
+    return this.items({
+      IncludeItemTypes: 'Audio',
+      Recursive: true,
+      Filters: 'IsFavorite',
+      SortBy: 'SortName',
+      StartIndex: start,
+      Limit: limit,
+    });
+  }
+
+  // ---- 1.4.3: recents, favorite albums, genres ----
+
+  /** Recently played tracks: the user's play history as the server keeps it
+   *  (UserData.LastPlayedDate, set when a player such as Finamp reports a play). */
+  recentTracks(start = 0, limit = 60): Promise<Page<Item>> {
+    return this.items({
+      IncludeItemTypes: 'Audio',
+      Recursive: true,
+      Filters: 'IsPlayed',
+      SortBy: 'DatePlayed,SortName',
+      SortOrder: 'Descending',
+      StartIndex: start,
+      Limit: limit,
+    });
+  }
+
+  /** 1.4.4: play history with only what the recents logic reads (Id, AlbumId,
+   *  UserData.LastPlayedDate): no images, no extra fields. */
+  recentPlays(start = 0, limit = 100): Promise<Page<Item>> {
+    return this.json<Page<Item>>(
+      'GET',
+      `/Items${qs({
+        userId: this.creds.userId,
+        IncludeItemTypes: 'Audio',
+        Recursive: true,
+        Filters: 'IsPlayed',
+        SortBy: 'DatePlayed,SortName',
+        SortOrder: 'Descending',
+        EnableImages: false,
+        EnableTotalRecordCount: true,
+        StartIndex: start,
+        Limit: limit,
+      })}`,
+    );
+  }
+
+  /**
+   * Recently played albums. Jellyfin only stamps LastPlayedDate on albums
+   * whose own user data was touched, which most players never do, so the
+   * server's DatePlayed album sort is used only when it carries real dates;
+   * otherwise the albums are taken, in order, from the recent tracks.
+   */
+  async recentAlbums(limit = 30): Promise<Page<Item>> {
+    // 1.4.4: most servers never date albums; once seen, skip that query
+    // (a 30-album full page) for the rest of the session
+    const server = serverDatesAlbums === false ? null : await this.items({
+      IncludeItemTypes: 'MusicAlbum',
+      Recursive: true,
+      Filters: 'IsPlayed',
+      SortBy: 'DatePlayed,SortName',
+      SortOrder: 'Descending',
+      Limit: limit,
+    }).catch(() => null);
+    const dated = server?.Items.filter(a => a.UserData?.LastPlayedDate) ?? [];
+    if (dated.length >= Math.min(limit, 3)) {
+      serverDatesAlbums = true;
+      return { Items: dated, TotalRecordCount: dated.length };
     }
-    return hits;
-  }
-
-  // Playback stream. Auth must ride in the query string: the phone's stream
-  // provider sends no headers, only Icy-MetaData: 1.
-  // AudioCodec lists ONLY what the iPhone (AVPlayer) can direct-play.
-  // Claiming opus/flac used to make the server direct-play them and the
-  // phone then failed every such track ("Playback failed"); unlisted codecs
-  // now transcode to MP3 instead. startMs restarts a transcode at an offset
-  // (StartTimeTicks) — the fallback for seeking inside transcoded streams,
-  // which AVPlayer cannot range-seek because they are live ffmpeg pipes.
-  streamUrl(trackId: string, deviceId: string, startMs = 0): string {
-    const params: Record<string, string | number> = {
-      UserId: this.creds.userId,
-      DeviceId: deviceId,
-      AudioCodec: 'mp3,aac,alac',
-      TranscodingContainer: 'mp3',
-      TranscodingProtocol: 'http',
-    };
-    if (startMs > 0) params.StartTimeTicks = Math.round(startMs * 10_000);
-    return this.url(`/Audio/${trackId}/universal`, params);
-  }
-
-  // Plain <img> needs no CORS, so artwork goes straight at the server.
-  imageUrl(itemId: string, width = 500): string {
-    return this.url(`/Items/${itemId}/Images/Primary`, { fillWidth: width, quality: 90 });
-  }
-
-  // Artwork for a track: its own image, else its album's.
-  trackImage(track: Track, width = 500): string | null {
-    if (track.imageTag) return this.imageUrl(track.id, width);
-    if (track.albumId) return this.imageUrl(track.albumId, width);
-    return null;
-  }
-
-  // Scrobbling: Jellyfin session playback reporting.
-  reportPlaying(itemId: string, sessionId: string): Promise<void> {
-    return this.request<void>('POST', '/Sessions/Playing', {}, {
-      ItemId: itemId,
-      PlayMethod: 'Transcode',
-      PlaySessionId: sessionId,
-      CanSeek: true,
-      IsPaused: false,
-    }).then(
-      () => undefined,
-      () => undefined,
-    );
-  }
-
-  reportProgress(itemId: string, sessionId: string, positionMs: number, paused: boolean): Promise<void> {
-    return this.request<void>('POST', '/Sessions/Playing/Progress', {}, {
-      ItemId: itemId,
-      PositionTicks: Math.round(positionMs * 10_000),
-      IsPaused: paused,
-      PlaySessionId: sessionId,
-      CanSeek: true,
-    }).then(
-      () => undefined,
-      () => undefined,
-    );
-  }
-
-  reportStopped(itemId: string, sessionId: string, positionMs: number): Promise<void> {
-    return this.request<void>('POST', '/Sessions/Playing/Stopped', {}, {
-      ItemId: itemId,
-      PositionTicks: Math.round(positionMs * 10_000),
-      PlaySessionId: sessionId,
-    }).then(
-      () => undefined,
-      () => undefined,
-    );
-  }
-
-  // Resume detection: fetch one library item as a Track.
-  async trackById(itemId: string): Promise<Track> {
-    const raw = await this.request<RawItem>('GET', `/Users/${this.creds.userId}/Items/${itemId}`, {});
-    return normalizeTrack(raw);
-  }
-
-  // Resume detection: is OUR device already playing something on the server?
-  // Only our own DeviceId counts — never claim another client's playback.
-  // Stale sessions (no activity for a while) are ignored.
-  async serverNowPlaying(): Promise<{ track: Track; positionMs: number; paused: boolean } | null> {
-    const sessions = await this.request<RawSession[]>('GET', '/Sessions', {});
-    const deviceId = await finchDeviceId();
-    const s = sessions.find(x => x.DeviceId === deviceId && x.NowPlayingItem?.Id);
-    if (!s?.NowPlayingItem) return null;
-    if (s.LastActivityDate) {
-      const ageMs = Date.now() - new Date(s.LastActivityDate).getTime();
-      if (!Number.isFinite(ageMs) || ageMs > 15 * 60_000) return null;
+    if (server) serverDatesAlbums = false;
+    // 1.4.4: the scan reads lean pages (no images, no extra fields:
+    // ~0.45 KB a track instead of ~1.5 KB) of 100, at most 300 tracks;
+    // 1.4.3 read up to 3 x 200 full records (~900 KB) on every track change.
+    const ids: string[] = [];
+    for (let start = 0; start < 300 && ids.length < limit; start += 100) {
+      const page = await this.recentPlays(start, 100);
+      for (const t of page.Items) if (t.AlbumId && !ids.includes(t.AlbumId)) ids.push(t.AlbumId);
+      if (start + page.Items.length >= page.TotalRecordCount || page.Items.length === 0) break;
     }
-    return {
-      track: normalizeTrack(s.NowPlayingItem),
-      positionMs: Math.round((s.PlayState?.PositionTicks ?? 0) / 10_000),
-      paused: s.PlayState?.IsPaused ?? false,
-    };
+    const want = ids.slice(0, limit);
+    if (!want.length) return { Items: [], TotalRecordCount: 0 };
+    const full = await this.items({ Ids: want.join(','), Limit: want.length });
+    const byId = new Map(full.Items.map(a => [a.Id, a]));
+    const out = want.map(id => byId.get(id)).filter((a): a is Item => !!a);
+    return { Items: out, TotalRecordCount: out.length };
   }
 
-  // Lyrics need server ≥ 10.9 (the Lyrics API debuted there). Cache the
-  // version so Now Playing doesn't refetch it per track.
-  private versionCache: { major: number; minor: number } | null | undefined;
+  favoriteAlbums(start = 0, limit = 60): Promise<Page<Item>> {
+    return this.items({
+      IncludeItemTypes: 'MusicAlbum',
+      Recursive: true,
+      Filters: 'IsFavorite',
+      SortBy: 'SortName',
+      StartIndex: start,
+      Limit: limit,
+    });
+  }
 
-  async serverVersion(): Promise<{ major: number; minor: number }> {
-    if (this.versionCache === undefined) {
+  /** Playlists the server says this user played (rare: most players never
+   *  stamp playlists). Only entries with a real LastPlayedDate are returned. */
+  async playedPlaylists(limit = 30): Promise<Item[]> {
+    const page = await this.items({
+      IncludeItemTypes: 'Playlist',
+      Recursive: true,
+      Filters: 'IsPlayed',
+      SortBy: 'DatePlayed,SortName',
+      SortOrder: 'Descending',
+      Limit: limit,
+    });
+    return page.Items.filter(p => p.UserData?.LastPlayedDate);
+  }
+
+  /** Every playlist with just what tells whether it changed (one request, no images). */
+  async playlistSigs(): Promise<{ items: Item[]; bytes: number }> {
+    const res = await this.raw(
+      'GET',
+      `/Items${qs({
+        userId: this.creds.userId,
+        IncludeItemTypes: 'Playlist',
+        Recursive: true,
+        Fields: 'ChildCount,DateLastSaved',
+        EnableImages: false,
+        EnableUserData: false,
+        EnableTotalRecordCount: false,
+        Limit: 2000,
+      })}`,
+      undefined,
+      15_000,
+      true,
+    );
+    const page = JSON.parse(new TextDecoder().decode(res.body)) as Page<Item>;
+    return { items: page.Items ?? [], bytes: res.body.length };
+  }
+
+  /**
+   * All track ids of a playlist in one small response: Jellyfin 10.9+
+   * GET /Playlists/{id} returns a PlaylistDto with ItemIds (ids only, ~40
+   * bytes per track). Null when the server has no such route (older
+   * servers): the caller falls back to playlistItemIds pages.
+   */
+  async playlistIdsOnly(playlistId: string): Promise<{ ids: string[]; bytes: number } | null> {
+    try {
+      const res = await this.raw('GET', `/Playlists/${playlistId}`, undefined, 15_000, true);
+      const dto = JSON.parse(new TextDecoder().decode(res.body)) as { ItemIds?: string[] };
+      return Array.isArray(dto?.ItemIds) ? { ids: dto.ItemIds, bytes: res.body.length } : null;
+    } catch (err) {
+      if (err instanceof JellyfinError && err.status !== null && err.status !== 401 && err.status !== 403) return null;
+      throw err;
+    }
+  }
+
+  /** One small page of a playlist's track ids (for the playlist index): no
+   *  images, no user data, background priority. Jellyfin has no ids-only
+   *  route, so each entry is still a small item record. */
+  async playlistItemIds(
+    playlistId: string,
+    start = 0,
+    limit = 100,
+  ): Promise<{ ids: string[]; total: number; bytes: number }> {
+    const res = await this.raw(
+      'GET',
+      `/Playlists/${playlistId}/Items${qs({
+        userId: this.creds.userId,
+        StartIndex: start,
+        Limit: limit,
+        EnableImages: false,
+        EnableUserData: false,
+        EnableTotalRecordCount: true,
+      })}`,
+      undefined,
+      15_000,
+      true,
+    );
+    const page = JSON.parse(new TextDecoder().decode(res.body)) as Page<Item>;
+    const ids = (page.Items ?? []).map(it => it.Id);
+    return { ids, total: page.TotalRecordCount ?? start + ids.length, bytes: res.body.length };
+  }
+
+  /** First track of a playlist (its album art stands in for a missing cover). */
+  async playlistFirstTrack(playlistId: string): Promise<Item | null> {
+    const page = await this.json<Page<Item>>(
+      'GET',
+      `/Playlists/${playlistId}/Items${qs({ userId: this.creds.userId, Limit: 1, EnableImageTypes: 'Primary', ImageTypeLimit: 1 })}`,
+    );
+    return page?.Items?.[0] ?? null;
+  }
+
+  private musicLib: Promise<string | null> | null = null;
+  /** The user's music library, when there is exactly one (scopes genres to it). */
+  private musicLibrary(): Promise<string | null> {
+    this.musicLib ??= this.json<Page<Item & { CollectionType?: string }>>(
+      'GET',
+      `/UserViews${qs({ userId: this.creds.userId })}`,
+    ).then(
+      v => {
+        const music = (v?.Items ?? []).filter(x => x.CollectionType === 'music');
+        return music.length === 1 ? music[0].Id : null;
+      },
+      () => {
+        this.musicLib = null;
+        return null;
+      },
+    );
+    return this.musicLib;
+  }
+
+  /** Music genres, paged. Genres without a picture borrow one album's cover
+   *  (one extra request per page, albums filtered by all the page's genres). */
+  async genres(start = 0, limit = 60): Promise<Page<Item>> {
+    const parentId = await this.musicLibrary();
+    const page = await this.json<Page<Item>>(
+      'GET',
+      `/MusicGenres${qs({
+        userId: this.creds.userId,
+        ParentId: parentId ?? undefined,
+        SortBy: 'SortName',
+        SortOrder: 'Ascending',
+        StartIndex: start,
+        Limit: limit,
+        EnableImageTypes: 'Primary',
+        ImageTypeLimit: 1,
+        EnableTotalRecordCount: true,
+      })}`,
+    );
+    const items = (page?.Items ?? []).map(g => ({ ...g, Type: 'MusicGenre' }));
+    const bare = items.filter(g => !g.ImageTags?.Primary);
+    if (bare.length) {
       try {
-        const info = await this.request<{ Version?: string }>('GET', '/System/Info');
-        const m = /^(\d+)\.(\d+)/.exec(info.Version ?? '');
-        this.versionCache = m ? { major: Number(m[1]), minor: Number(m[2]) } : null;
+        const albums = await this.items({
+          IncludeItemTypes: 'MusicAlbum',
+          Recursive: true,
+          GenreIds: bare.map(g => g.Id).join('|'),
+          Fields: 'GenreItems',
+          SortBy: 'SortName',
+          Limit: 300,
+        });
+        for (const g of bare) {
+          const a = albums.Items.find(x => x.ImageTags?.Primary && x.GenreItems?.some(gi => gi.Id === g.Id));
+          if (a) Object.assign(g, { AlbumId: a.Id, AlbumPrimaryImageTag: a.ImageTags!.Primary });
+        }
       } catch {
-        this.versionCache = null;
+        /* placeholders it is */
       }
     }
-    return this.versionCache ?? { major: 0, minor: 0 };
+    return { Items: items, TotalRecordCount: page?.TotalRecordCount ?? items.length };
   }
 
-  async lyricsSupported(): Promise<boolean> {
-    const v = await this.serverVersion();
-    // A failed version check (link hiccup) must not hide the lyrics
-    // toggle: fail open. The per-track fetch still dims the toggle when a
-    // track actually has no lyrics.
-    if (v.major === 0 && v.minor === 0) return true;
-    return v.major > 10 || (v.major === 10 && v.minor >= 9);
+  genreAlbums(genreId: string, start = 0, limit = 60): Promise<Page<Item>> {
+    return this.items({
+      IncludeItemTypes: 'MusicAlbum',
+      Recursive: true,
+      GenreIds: genreId,
+      SortBy: 'SortName',
+      StartIndex: start,
+      Limit: limit,
+    });
   }
 
-  // Embedded lyrics for one track. 404 (no lyrics) and any other failure
-  // both resolve to null — missing lyrics must never break Now Playing.
-  // Results are cached per track id so re-opening Now Playing is free.
-  private lyricsCache = new Map<string, ParsedLyrics | null>();
+  /** Tracks of a genre, album by album (capped: Play sends at most 150 anyway). */
+  genreTracks(genreId: string, limit = 300): Promise<Page<Item>> {
+    return this.items({
+      IncludeItemTypes: 'Audio',
+      Recursive: true,
+      GenreIds: genreId,
+      SortBy: 'AlbumArtist,Album,ParentIndexNumber,IndexNumber,SortName',
+      Limit: limit,
+    });
+  }
 
-  async getLyrics(itemId: string, durationMs = 0): Promise<ParsedLyrics | null> {
-    const hit = this.lyricsCache.get(itemId);
-    if (hit !== undefined) return hit;
-    let parsed: ParsedLyrics | null = null;
-    try {
-      const dto = await this.request<RawLyricDto>('GET', `/Audio/${itemId}/Lyrics`);
-      parsed = dto ? parseLyricDto(dto, durationMs) : null;
-    } catch {
-      parsed = null;
+  artists(start = 0, limit = 60): Promise<Page<Item>> {
+    return this.json<Page<Item>>(
+      'GET',
+      `/Artists/AlbumArtists${qs({
+        userId: this.creds.userId,
+        SortBy: 'SortName',
+        StartIndex: start,
+        Limit: limit,
+        EnableImageTypes: 'Primary',
+        ImageTypeLimit: 1,
+        Fields: 'ChildCount',
+      })}`,
+    );
+  }
+
+  artistAlbums(artistId: string): Promise<Page<Item>> {
+    return this.items({
+      IncludeItemTypes: 'MusicAlbum',
+      Recursive: true,
+      AlbumArtistIds: artistId,
+      SortBy: 'ProductionYear,SortName',
+      SortOrder: 'Descending',
+      Limit: 200,
+    });
+  }
+
+  /** Tracks of an album or playlist, in play order. */
+  async tracks(parent: Item): Promise<Item[]> {
+    if (parent.Type === 'Playlist') {
+      const page = await this.json<Page<Item>>(
+        'GET',
+        `/Playlists/${parent.Id}/Items${qs({ userId: this.creds.userId, Limit: 500, Fields: 'ChildCount' })}`,
+      );
+      return page.Items;
     }
-    this.lyricsCache.set(itemId, parsed);
-    return parsed;
+    const page = await this.items({
+      ParentId: parent.Id,
+      IncludeItemTypes: 'Audio',
+      Recursive: true,
+      SortBy: 'ParentIndexNumber,IndexNumber,SortName',
+      Limit: 500,
+    });
+    return page.Items;
+  }
+
+  async instantMix(itemId: string): Promise<Item[]> {
+    const page = await this.json<Page<Item>>(
+      'GET',
+      `/Items/${itemId}/InstantMix${qs({ userId: this.creds.userId, Limit: 100 })}`,
+    );
+    return page.Items;
+  }
+
+  async setFavorite(itemId: string, favorite: boolean): Promise<void> {
+    await this.raw(favorite ? 'POST' : 'DELETE', `/UserFavoriteItems/${itemId}${qs({ userId: this.creds.userId })}`);
+  }
+
+  /** Artwork bytes for an item (falls back to its album's art for tracks). */
+  async image(item: Item, size: number): Promise<{ bytes: Uint8Array; mime: string } | null> {
+    let id = item.Id;
+    let tag = item.ImageTags?.Primary;
+    if (!tag && item.AlbumId && item.AlbumPrimaryImageTag) {
+      id = item.AlbumId;
+      tag = item.AlbumPrimaryImageTag;
+    }
+    if (!tag) return null;
+    try {
+      const res = await this.raw(
+        'GET',
+        `/Items/${id}/Images/Primary${qs({ fillHeight: size, fillWidth: size, quality: 85, tag })}`,
+        undefined,
+        10_000,
+      );
+      if (res.body.length === 0) return null;
+      const mime = res.headers.find(h => h.name.toLowerCase() === 'content-type')?.value.split(';')[0] ?? 'image/jpeg';
+      return { bytes: res.body, mime };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Lyrics for a track (Jellyfin 10.9+ `/Audio/{id}/Lyrics`, falling back to the
+   * 10.8 per-user route). Null when the track has none.
+   */
+  async lyrics(itemId: string): Promise<Lyrics | null> {
+    type Raw = { Lyrics?: { Text?: string; Start?: number | null }[] };
+    let raw: Raw | null = null;
+    for (const path of [`/Audio/${itemId}/Lyrics`, `/Users/${this.creds.userId}/Items/${itemId}/Lyrics`]) {
+      try {
+        raw = await this.json<Raw>('GET', path);
+        break;
+      } catch (err) {
+        if (err instanceof JellyfinError && (err.status === 404 || err.status === 400)) continue;
+        throw err;
+      }
+    }
+    const list = raw?.Lyrics ?? [];
+    const lines = list
+      .map(l => ({ text: (l.Text ?? '').trim(), startMs: l.Start != null ? l.Start / TICKS_PER_MS : null }))
+      .filter((l, i, all) => l.text !== '' || (i > 0 && all[i - 1].text !== ''));
+    if (!lines.some(l => l.text)) return null;
+    const synced = lines.filter(l => l.startMs != null).length >= Math.max(2, lines.length * 0.6);
+    return { lines, synced };
+  }
+
+  // ---------- sessions (remote control) ----------
+
+  // Server clock offset (server - local, ms), narrowed from the HTTP Date header.
+  // Date has 1 s resolution, so each response bounds the offset to a window;
+  // intersecting windows across polls converges on the true value.
+  private sightings = new Map<string, { ticks: number; item?: string; playing: boolean; seenAt: number }>();
+  private clockLo = -Infinity;
+  private clockHi = Infinity;
+
+  private noteClock(dateHeader: string | undefined, sentAt: number, recvAt: number) {
+    const d = dateHeader ? Date.parse(dateHeader) : NaN;
+    if (!Number.isFinite(d)) return;
+    // the server stamped Date somewhere between sentAt and recvAt, floored to the second
+    const lo = d - recvAt;
+    const hi = d + 1000 - sentAt;
+    if (lo > this.clockHi || hi < this.clockLo) {
+      // clocks jumped (NTP sync, sleep): start over
+      this.clockLo = lo;
+      this.clockHi = hi;
+    } else {
+      this.clockLo = Math.max(this.clockLo, lo);
+      this.clockHi = Math.min(this.clockHi, hi);
+    }
+  }
+
+  async sessions(): Promise<Session[]> {
+    const sentAt = Date.now();
+    const res = await this.raw(
+      'GET',
+      `/Sessions${qs({ ControllableByUserId: this.creds.userId, ActiveWithinSeconds: 960 })}`,
+      undefined,
+      8000,
+      false,
+      'now',
+    );
+    const recvAt = Date.now();
+    this.noteClock(res.headers.find(h => h.name.toLowerCase() === 'date')?.value, sentAt, recvAt);
+    const list = JSON.parse(new TextDecoder().decode(res.body)) as Session[];
+    // the request took (recvAt - sentAt); the server read the session about halfway
+    const readAt = (sentAt + recvAt) / 2;
+    return list
+      .filter(s => s.SupportsRemoteControl && s.DeviceId !== this.creds.deviceId)
+      .map(s => {
+        const ps = s.PlayState ?? {};
+        const ticks = ps.PositionTicks ?? 0;
+        const playing = !!s.NowPlayingItem && !ps.IsPaused;
+        // Some players report progress rarely (Finamp: every 150 s by default,
+        // plus on play/pause/seek/track change), others constantly. Anchor the
+        // reported position to the first poll that saw it: a live reporter
+        // changes it every poll (no extrapolation), a sparse one gets rolled
+        // forward from when we first saw the value. No clock maths involved.
+        const key = s.Id;
+        const prev = this.sightings.get(key);
+        const same = prev && prev.ticks === ticks && prev.item === s.NowPlayingItem?.Id && prev.playing === playing;
+        const seenAt = same ? prev.seenAt : readAt;
+        this.sightings.set(key, { ticks, item: s.NowPlayingItem?.Id, playing, seenAt });
+        const pos = ticks / TICKS_PER_MS + (playing ? readAt - seenAt : 0);
+        return { ...s, positionMs: pos, positionAt: readAt };
+      });
+  }
+
+  playNow(sessionId: string, ids: string[], startIndex = 0): Promise<unknown> {
+    return this.post(
+      `/Sessions/${sessionId}/Playing${qs({ playCommand: 'PlayNow', itemIds: ids.join(','), startIndex })}`,
+    );
+  }
+
+  queue(sessionId: string, ids: string[], next: boolean): Promise<unknown> {
+    return this.post(
+      `/Sessions/${sessionId}/Playing${qs({ playCommand: next ? 'PlayNext' : 'PlayLast', itemIds: ids.join(',') })}`,
+    );
+  }
+
+  command(
+    sessionId: string,
+    cmd: 'PlayPause' | 'Pause' | 'Unpause' | 'NextTrack' | 'PreviousTrack' | 'Stop',
+  ): Promise<unknown> {
+    return this.post(`/Sessions/${sessionId}/Playing/${cmd}`);
+  }
+
+  seek(sessionId: string, positionMs: number): Promise<unknown> {
+    return this.post(
+      `/Sessions/${sessionId}/Playing/Seek${qs({ seekPositionTicks: Math.max(0, Math.round(positionMs * TICKS_PER_MS)) })}`,
+    );
+  }
+
+  setShuffle(sessionId: string, shuffle: boolean): Promise<unknown> {
+    return this.post(`/Sessions/${sessionId}/Command`, {
+      Name: 'SetShuffleQueue',
+      Arguments: { ShuffleMode: shuffle ? 'Shuffle' : 'Sorted' },
+    });
+  }
+
+  setRepeat(sessionId: string, mode: 'RepeatNone' | 'RepeatAll' | 'RepeatOne'): Promise<unknown> {
+    return this.post(`/Sessions/${sessionId}/Command`, { Name: 'SetRepeatMode', Arguments: { RepeatMode: mode } });
+  }
+
+  async serverName(): Promise<string> {
+    const info = await this.json<{ ServerName?: string }>('GET', '/System/Info/Public');
+    return info?.ServerName ?? 'Jellyfin';
   }
 }
 
-// One-off connection test used by the settings page and onboarding.
-export async function testConnection(server: string, apiKey: string): Promise<{ userId: string; userName: string }> {
-  const clean = cleanServer(server);
-  const key = apiKey.trim();
-  const client = getClient();
-  const deviceId = await finchDeviceId();
-  const headers = [
-    {
-      name: 'Authorization',
-      value:
-        `MediaBrowser Client="Finch", Device="Car Thing", DeviceId="${deviceId}", ` +
-        `Version="${FINCH_VERSION}", Token="${key}"`,
-    },
-  ];
-  const res = await client.net.fetch({
-    request: {
-      url: `${clean}/System/Info?ApiKey=${encodeURIComponent(key)}`,
-      method: 'GET',
-      headers,
-      body: null,
-      timeoutMs: FETCH_TIMEOUT_MS,
-      redirect: 'follow',
-    },
-  });
-  if (!res.ok) throw new JellyfinError(0, 'could not reach the server; check the URL and that the phone has network');
-  if (res.response.response.status === 401 || res.response.response.status === 403) {
-    throw new JellyfinError(401, `the server rejected that API key (${res.response.response.status})`);
+export function artistLine(item: Item): string {
+  if (item.Type === 'MusicAlbum') return item.AlbumArtist ?? item.Artists?.join(', ') ?? '';
+  if (item.Type === 'Playlist') return item.ChildCount != null ? `${item.ChildCount} track${item.ChildCount === 1 ? '' : 's'}` : 'Playlist';
+  if (item.Type === 'MusicArtist') return item.ChildCount != null ? `${item.ChildCount} album${item.ChildCount === 1 ? '' : 's'}` : 'Artist';
+  return item.Artists?.join(', ') || item.AlbumArtist || '';
+}
+
+export function shuffled<T>(list: T[]): T[] {
+  const out = list.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
   }
-  if (res.response.response.status >= 400) {
-    throw new JellyfinError(res.response.response.status, `server error ${res.response.response.status}${errBody(res.response.response.body)}`);
-  }
-  // System/Info needs no user; now find the user id for library calls.
-  const usersRes = await client.net.fetch({
-    request: {
-      url: `${clean}/Users?ApiKey=${encodeURIComponent(key)}`,
-      method: 'GET',
-      headers,
-      body: null,
-      timeoutMs: FETCH_TIMEOUT_MS,
-      redirect: 'follow',
-    },
-  });
-  if (!usersRes.ok) throw new JellyfinError(0, 'connected, but could not list users');
-  const users = JSON.parse(dec.decode(usersRes.response.response.body)) as { Id: string; Name: string }[];
-  if (!users.length) throw new JellyfinError(0, 'connected, but the server returned no users');
-  return { userId: users[0].Id, userName: users[0].Name };
-}
-
-// ---- Quick Connect -------------------------------------------------------
-// Jellyfin's device-linking flow: the device asks for a code (no token
-// needed, though the client identification header still is), the user types it into Jellyfin (user menu → Quick Connect, or a
-// Jellyfin app's settings), approves it, and the device trades the secret
-// for a real access token + user id. Nothing to type on the Car Thing.
-
-export interface QuickConnectSession {
-  secret: string;
-  code: string;
-}
-
-async function qcFetch<T>(server: string, path: string, opts?: { body?: unknown; post?: boolean }): Promise<T> {
-  const clean = cleanServer(server);
-  const client = getClient();
-  // No token exists yet at this point, but Jellyfin still needs the client
-  // identification header on these endpoints: TryConnect throws
-  // ArgumentException (=> 400 "Error processing request.") when DeviceId,
-  // Device, Client or Version are missing. The MODERN `Authorization` header
-  // is required here, not just `X-Emby-Authorization` — recent Jellyfin runs
-  // a migration that disables legacy authorization, and with it off the
-  // server silently ignores every X-Emby-* header, so the client info never
-  // reaches the parser. (This is also why Finamp works: it sends the
-  // `Authorization` header.) We send both with identical values; the server
-  // prefers `Authorization` when both are present.
-  const deviceId = await finchDeviceId();
-  const authValue =
-    `MediaBrowser Client="Finch", Device="Car Thing", DeviceId="${deviceId}", Version="${FINCH_VERSION}"`;
-  const headers: { name: string; value: string }[] = [
-    { name: 'Authorization', value: authValue },
-    { name: 'X-Emby-Authorization', value: authValue },
-  ];
-  const hasBody = opts?.body !== undefined;
-  const method = hasBody || opts?.post ? 'POST' : 'GET';
-  if (hasBody) headers.push({ name: 'Content-Type', value: 'application/json' });
-  const res = await client.net.fetch({
-    request: {
-      url: `${clean}${path}`,
-      method,
-      headers,
-      body: hasBody ? enc.encode(JSON.stringify(opts.body)) : null,
-      timeoutMs: FETCH_TIMEOUT_MS,
-      redirect: 'follow',
-    },
-  });
-  if (!res.ok) throw new JellyfinError(0, 'could not reach the server; check the URL and that the phone has network');
-  const r = res.response.response;
-  if (r.status >= 400) throw new JellyfinError(r.status, `server error ${r.status}${errBody(r.body)}`);
-  return JSON.parse(dec.decode(r.body)) as T;
-}
-
-// Step 1: get a secret + the 6-digit code to show the user. No token needed,
-// but the client identification header (sent by qcFetch) is required.
-// Initiate is POST-only on Jellyfin; the POST carries no body.
-// Note: Jellyfin returns PascalCase keys (Secret, Code) — map them to our
-// camelCase session, otherwise the secret is undefined and the poll 404s.
-export async function quickConnectInitiate(server: string): Promise<QuickConnectSession> {
-  const data = await qcFetch<{ Secret?: string; Code?: string }>(server, '/QuickConnect/Initiate', { post: true });
-  if (!data.Secret || !data.Code) {
-    throw new JellyfinError(0, 'the server did not return a Quick Connect code.');
-  }
-  return { secret: data.Secret, code: data.Code };
-}
-
-// Step 2: poll until the user approves the code in Jellyfin.
-export async function quickConnectPoll(server: string, secret: string): Promise<boolean> {
-  const data = await qcFetch<{ Authenticated?: boolean }>(
-    server,
-    `/QuickConnect/Connect?Secret=${encodeURIComponent(secret)}`,
-  );
-  return data.Authenticated === true;
-}
-
-// Step 3: trade the approved secret for an access token + user. The token
-// endpoint lives on the Users controller, not the QuickConnect controller:
-// POST /Users/AuthenticateWithQuickConnect with { Secret }.
-export async function quickConnectAuthenticate(
-  server: string,
-  secret: string,
-): Promise<{ apiKey: string; userId: string; userName: string }> {
-  const data = await qcFetch<{ AccessToken?: string; User?: { Id?: string; Name?: string } }>(
-    server,
-    '/Users/AuthenticateWithQuickConnect',
-    { body: { Secret: secret } },
-  );
-  if (!data.AccessToken || !data.User?.Id) {
-    throw new JellyfinError(0, 'the server did not return a token — approve the code in Jellyfin first.');
-  }
-  return { apiKey: data.AccessToken, userId: data.User.Id, userName: data.User.Name ?? 'Jellyfin user' };
+  return out;
 }

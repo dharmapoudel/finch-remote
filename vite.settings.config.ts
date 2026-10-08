@@ -3,6 +3,7 @@ import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
+import { bundleLimits } from './scripts/limits.ts';
 
 const WARN_BYTES = 200 * 1024;
 const LOUD_BYTES = 500 * 1024;
@@ -26,14 +27,14 @@ function sizeGuard(): Plugin {
             '',
             '========================================================================',
             `  settings.html is ${kib} KiB.`,
-            `  the device refuses to install a bundle whose settings page is over ${HARD_CAP}.`,
-            '  trim dependencies or inline assets; the whole install fails, not just this page.',
+            `  the companion hard-rejects settings pages over ${HARD_CAP} at install.`,
+            '  trim dependencies or inline assets before this page stops installing.',
             '========================================================================',
             '',
           ].join('\n'),
         );
       } else if (bytes > WARN_BYTES) {
-        console.warn(`settings.html is ${kib} KiB; keep it lean (install fails over ${HARD_CAP}).`);
+        console.warn(`settings.html is ${kib} KiB; keep it lean (install hard cap is ${HARD_CAP}).`);
       }
     },
   };
@@ -41,7 +42,7 @@ function sizeGuard(): Plugin {
 
 export default defineConfig({
   root: 'settings',
-  plugins: [preact(), viteSingleFile(), sizeGuard()],
+  plugins: [preact(), viteSingleFile(), sizeGuard(), bundleLimits(__dirname)],
   build: {
     target: 'es2022',
     outDir: resolve(__dirname, 'dist'),

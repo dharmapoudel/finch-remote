@@ -18,5 +18,5 @@
     "verbatimModuleSyntax": true,
     "useDefineForClassFields": true
   },
-  "include": ["src", "settings", "extension"]
+  "include": ["src", "settings"]
 }

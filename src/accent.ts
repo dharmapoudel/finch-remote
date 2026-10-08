@@ -1,6 +1,14 @@
 // Artwork accent extraction, ported from o-music (Ousa-Music-Player-v1):
 // the accent is pulled off the album art, so it has to survive dark covers,
 // blown out covers and greyscale ones.
+//
+// 1.4.2: sampled the way the art is drawn on screen (an <img> on the art's
+// own object URL), never by fetching the blob: URL back (fetch() is subject
+// to the webview's connect-src and fails where <img> works). Failures are
+// not cached forever, a blank read-back counts as a failure, greyscale
+// covers get a neutral accent (gold only when there is no art), the fill is
+// lifted until it reads on the dark panel, and results are remembered per
+// artwork key across restarts (localStorage, 300 entries).
 
 import { useEffect, useState } from 'react';
 
@@ -54,26 +62,12 @@ function luminance(h: number, s: number, l: number): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-export async function accentFrom(blob: Blob): Promise<Accent | null> {
-  let bitmap: ImageBitmap;
-  try {
-    bitmap = await createImageBitmap(blob);
-  } catch {
-    return null;
-  }
-
-  const canvas = document.createElement('canvas');
-  canvas.width = SAMPLE_PX;
-  canvas.height = SAMPLE_PX;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) {
-    bitmap.close();
-    return null;
-  }
-  ctx.drawImage(bitmap, 0, 0, SAMPLE_PX, SAMPLE_PX);
-  bitmap.close();
-
-  const { data } = ctx.getImageData(0, 0, SAMPLE_PX, SAMPLE_PX);
+/** Accent from 32x32 RGBA pixels. null = nothing sampled (blank read-back). */
+export function accentFromPixels(data: Uint8ClampedArray): Accent | null {
+  let opaque = 0;
+  let hx = 0;
+  let hy = 0;
+  let lSum = 0;
   const weight = new Float64Array(HUE_BUCKETS);
   const satSum = new Float64Array(HUE_BUCKETS);
   // circular mean per bucket, so a red that straddles both ends of the wheel averages back to red
@@ -82,7 +76,11 @@ export async function accentFrom(blob: Blob): Promise<Accent | null> {
 
   for (let i = 0; i < data.length; i += 4) {
     if (data[i + 3] < 128) continue;
+    opaque++;
     const { h, s, l } = toHsl(data[i], data[i + 1], data[i + 2]);
+    lSum += l;
+    hx += Math.cos(h * 2 * Math.PI) * s;
+    hy += Math.sin(h * 2 * Math.PI) * s;
     // greys, crushed blacks and blown highlights carry no usable hue
     if (s < 0.18 || l < 0.12 || l > 0.92) continue;
     const w = s * (1 - Math.abs(l - 0.5));
@@ -101,7 +99,22 @@ export async function accentFrom(blob: Blob): Promise<Accent | null> {
       best = i;
     }
   }
-  if (best < 0) return null;
+  // An all-transparent read-back (blank canvas) is a failed sample.
+  if (opaque === 0) return null;
+  if (best < 0) {
+    // greyscale / near-black / blown-out cover: a neutral accent with the
+    // faintest cast of the cover's own hue (gold is only for "no art")
+    let gh = Math.atan2(hy, hx) / (2 * Math.PI);
+    if (gh < 0) gh += 1;
+    const gl = Math.round(Math.min(84, Math.max(74, (lSum / opaque) * 100 + 30)));
+    return {
+      fill: `hsl(${Math.round(gh * 360)} 10% ${gl}%)`,
+      fill2: `hsl(${Math.round(gh * 360)} 8% ${gl - 8}%)`,
+      ink: '#060809',
+      soft: `hsl(${Math.round(gh * 360)} 8% 86%)`,
+      soft2: `hsl(${Math.round(gh * 360)} 6% 80%)`,
+    };
+  }
 
   // the runner-up hue gives the gradient a second colour that is genuinely off the cover
   let runnerUp = -1;
@@ -132,46 +145,172 @@ export async function accentFrom(blob: Blob): Promise<Accent | null> {
   const css = (hue: number, sat: number, light: number): string =>
     `hsl(${Math.round(hue * 360)} ${Math.round(sat * 100)}% ${light}%)`;
 
+  // Legibility on the dark panel (#0b0d10, L~0.004): lift the lightness until
+  // the fill has at least 5:1 contrast (deep blues/violets need it).
+  const lift = (hue: number, sat: number): number => {
+    let l = 0.62;
+    while (l < 0.8 && (luminance(hue, sat, l) + 0.05) / (0.0045 + 0.05) < 5) l += 0.02;
+    return l;
+  };
+  const l1 = lift(h, s);
+  const l2 = lift(h2, s2);
+  const pct = (v: number) => Math.round(v * 100);
   return {
-    fill: css(h, s, 62),
-    fill2: css(h2, s2, 62),
-    ink: luminance(h, s, 0.62) > 0.42 ? '#060809' : '#f4f6f8',
+    fill: css(h, s, pct(l1)),
+    fill2: css(h2, s2, pct(l2)),
+    ink: luminance(h, s, l1) > 0.42 ? '#060809' : '#f4f6f8',
     soft: css(h, Math.min(s, 0.6), 74),
     soft2: css(h2, Math.min(s2, 0.6), 74),
   };
 }
 
-const cache = new Map<string, Accent | null>();
+// ---- sampling + caches ----
 
-// Accent for an artwork URL (blob: or http(s)); extracted once per URL and cached.
-export function useAccent(artUrl: string | null): Accent | null {
-  const [accent, setAccent] = useState<Accent | null>(() =>
-    artUrl ? (cache.get(artUrl) ?? null) : null,
-  );
+const SAMPLE_TIMEOUT = 8000;
+
+/** Decode the art URL the way the screen does (<img>) and sample it at 32px. */
+function sampleUrl(url: string): Promise<Accent | null> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.decoding = 'async';
+    let settled = false;
+    const finish = (a: Accent | null) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(a);
+    };
+    const timer = window.setTimeout(() => finish(null), SAMPLE_TIMEOUT);
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = SAMPLE_PX;
+        canvas.height = SAMPLE_PX;
+        // willReadFrequently keeps this canvas in CPU memory, so the
+        // read-back never depends on the GPU.
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return finish(null);
+        ctx.drawImage(img, 0, 0, SAMPLE_PX, SAMPLE_PX);
+        finish(accentFromPixels(ctx.getImageData(0, 0, SAMPLE_PX, SAMPLE_PX).data));
+      } catch {
+        finish(null);
+      }
+    };
+    img.onerror = () => finish(null);
+    img.src = url;
+  });
+}
+
+// Memory: keyed by art key when known (stable across sessions), else URL.
+const mem = new Map<string, Accent>();
+const MEM_MAX = 300;
+const inflight = new Map<string, Promise<Accent | null>>();
+const LS_KEY = 'finch:accents:v1';
+let disk: Record<string, Accent> | null = null;
+let diskTimer: number | null = null;
+
+function loadDisk(): Record<string, Accent> {
+  if (disk) return disk;
+  try {
+    disk = JSON.parse(localStorage.getItem(LS_KEY) ?? '{}') as Record<string, Accent>;
+  } catch {
+    disk = {};
+  }
+  return disk;
+}
+function saveDisk(key: string, a: Accent): void {
+  const d = loadDisk();
+  delete d[key];
+  d[key] = a;
+  const keys = Object.keys(d);
+  for (let i = 0; i < keys.length - MEM_MAX; i++) delete d[keys[i]];
+  if (diskTimer !== null) return;
+  diskTimer = window.setTimeout(() => {
+    diskTimer = null;
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(disk));
+    } catch {
+      /* storage full or unavailable: memory only */
+    }
+  }, 1500);
+}
+function remember(id: string, a: Accent, persist: boolean): void {
+  mem.delete(id);
+  mem.set(id, a);
+  if (mem.size > MEM_MAX) mem.delete(mem.keys().next().value!);
+  if (persist) saveDisk(id, a);
+}
+
+/** Known accent for an id (art key or URL), without sampling. */
+export function peekAccent(id: string | null | undefined): Accent | undefined {
+  if (!id) return undefined;
+  const hit = mem.get(id);
+  if (hit) return hit;
+  if (!id.startsWith('blob:') && !id.startsWith('data:')) {
+    const d = loadDisk()[id];
+    if (d) {
+      mem.set(id, d);
+      return d;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Accent for an artwork URL, sampled once per id (art key when given, else
+ * the URL). A failed sample is retried once and never cached, so a later
+ * call can still succeed.
+ */
+export function accentFor(url: string, key?: string | null): Promise<Accent | null> {
+  const id = key ?? url;
+  const hit = peekAccent(id);
+  if (hit) return Promise.resolve(hit);
+  let p = inflight.get(id);
+  if (!p) {
+    p = sampleUrl(url)
+      .then(a => a ?? new Promise<Accent | null>(r => window.setTimeout(() => void sampleUrl(url).then(r), 600)))
+      .then(a => {
+        inflight.delete(id);
+        if (a) remember(id, a, !!key);
+        return a;
+      });
+    inflight.set(id, p);
+  }
+  return p;
+}
+
+/**
+ * Accent for the art shown now. While the next track's art is still loading
+ * (url null, key known) the previous accent stays, so colours crossfade from
+ * cover to cover instead of flashing gold; null only when there is no art.
+ */
+export function useAccent(artUrl: string | null, key?: string | null, hasArt = !!artUrl): Accent | null {
+  const id = key ?? artUrl;
+  const [accent, setAccent] = useState<Accent | null>(() => peekAccent(id) ?? null);
   useEffect(() => {
-    if (!artUrl) {
+    if (!hasArt) {
       setAccent(null);
       return;
     }
-    if (cache.has(artUrl)) {
-      setAccent(cache.get(artUrl) ?? null);
+    const hit = peekAccent(id);
+    if (hit) {
+      setAccent(hit);
       return;
     }
-    let stale = false;
-    fetch(artUrl)
-      .then(r => r.blob())
-      .then(accentFrom)
-      .then(a => {
-        cache.set(artUrl, a);
-        if (!stale) setAccent(a);
-      })
-      .catch(() => {
-        cache.set(artUrl, null);
-        if (!stale) setAccent(null);
-      });
+    if (!artUrl) return; // art still loading: keep the previous accent
+    let live = true;
+    void accentFor(artUrl, key).then(a => {
+      if (live && a) setAccent(a);
+      else if (live && !a) setAccent(null);
+    });
     return () => {
-      stale = true;
+      live = false;
     };
-  }, [artUrl]);
+  }, [artUrl, id, key, hasArt]);
   return accent;
+}
+
+/** Non-hook variant (browse backdrops), sharing the caches. */
+export function accentFromUrl(artUrl: string, key?: string | null): Promise<Accent | null> {
+  return accentFor(artUrl, key);
 }

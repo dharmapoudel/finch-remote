@@ -1,330 +1,416 @@
-// Finch settings page. Runs on the PHONE inside the companion app, so it
-// uses settings.fetch (the phone's network, no CORS) to talk to Jellyfin and
-// settings.config.set to hand the credentials to the Car Thing.
-import { settings } from '@bridgething/client/settings';
-import { useEffect, useRef, useState } from 'react';
-import { createRoot } from 'react-dom/client';
+/** @jsxImportSource preact */
+import { settings, type SettingsContext } from '@bridgething/client/settings';
+import { LOGO_URL } from '../src/logo';
+import { render } from 'preact';
+import { useEffect, useRef, useState } from 'preact/hooks';
+import { APP_NAME, APP_VERSION, authHeader, normalizeServerUrl } from '../src/jellyfin';
 import './style.css';
 
-const APP_VERSION = '0.1.11';
+// The companion phone app renders this page. It signs in to Jellyfin from the
+// phone and writes the resulting token into the webapp's config, which the Car
+// Thing reads with `client.config`. The password itself is never stored.
 
-type Status = { kind: 'ok' | 'err' | 'info'; text: string } | null;
+type Values = Record<string, string>;
+type Mode = 'password' | 'quick' | 'apikey';
 
-function authHeader(deviceId: string): string {
-  return `MediaBrowser Client="Finch", Device="Car Thing", DeviceId="${deviceId}", Version="${APP_VERSION}"`;
+function newDeviceId(): string {
+  const r = crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : Math.random().toString(16).slice(2);
+  return `carthing-${r}`;
 }
 
-async function postJson(url: string, body?: unknown, headers: Record<string, string> = {}): Promise<unknown> {
-  const hasBody = body !== undefined;
-  const res = await settings.fetch(url, {
-    method: 'POST',
-    headers: hasBody ? { 'Content-Type': 'application/json', ...headers } : headers,
-    body: hasBody ? JSON.stringify(body) : undefined,
-    timeoutMs: 20_000,
-  });
-  if (res.status === 401 || res.status === 403) throw new Error('rejected: check the username, password or API key.');
-  if (!res.ok) {
-    let detail = '';
-    try {
-      detail = (await res.text()).replace(/\s+/g, ' ').trim().slice(0, 220);
-    } catch {
-      /* ignore */
-    }
-    throw new Error(`server error ${res.status}${detail ? `: ${detail}` : ''}`);
+async function call<T>(
+  server: string,
+  path: string,
+  deviceId: string,
+  init: { method?: string; body?: unknown; token?: string } = {},
+): Promise<T> {
+  const headers: Record<string, string> = {
+    Authorization: authHeader(deviceId, init.token),
+    Accept: 'application/json',
+  };
+  if (init.body !== undefined) headers['Content-Type'] = 'application/json';
+  if (init.token) headers['X-Emby-Token'] = init.token;
+  let res: Response;
+  try {
+    res = await settings.fetch(`${server}${path}`, {
+      method: init.method ?? (init.body !== undefined ? 'POST' : 'GET'),
+      headers,
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      timeoutMs: 10_000,
+    });
+  } catch (err) {
+    throw new Error(`Can't reach ${server}. ${err instanceof Error ? err.message : ''}`.trim());
   }
-  return res.json();
+  if (res.status === 401) throw new Error('Wrong username or password.');
+  if (!res.ok) throw new Error(`Server answered HTTP ${res.status}.`);
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
-async function getJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
-  const res = await settings.fetch(url, { headers, timeoutMs: 20_000 });
-  if (res.status === 401 || res.status === 403) throw new Error('rejected: check the API key.');
-  if (!res.ok) throw new Error(`server error ${res.status}`);
-  return res.json();
-}
+type AuthResult = { AccessToken: string; User: { Id: string; Name: string }; ServerId?: string };
 
 function Settings() {
-  const [deviceId, setDeviceId] = useState('');
+  const [ctx, setCtx] = useState<SettingsContext | null>(null);
+  const [values, setValues] = useState<Values>({});
+  const [loaded, setLoaded] = useState(false);
   const [server, setServer] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [savedFor, setSavedFor] = useState('');
-  const [status, setStatus] = useState<Status>(null);
+  const [mode, setMode] = useState<Mode>('password');
+  const [serverInfo, setServerInfo] = useState<string | null>(null);
+  const [status, setStatus] = useState<{ text: string; kind: 'ok' | 'err' | 'info' } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [qcCode, setQcCode] = useState<string | null>(null);
-  const qcTimer = useRef<number | null>(null);
+  const [quickCode, setQuickCode] = useState<string | null>(null);
+  const quickCancel = useRef(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const ctx = await settings.context();
-        setDeviceId(ctx.deviceId);
+        setCtx(await settings.context());
         const entries = await settings.config.list();
-        const byKey = Object.fromEntries(entries.map(e => [e.key, e.value ?? '']));
-        setServer(byKey['server_url'] ?? '');
-        setApiKey(byKey['api_key'] ?? '');
-        if (byKey['server_url']) setSavedFor(byKey['server_url']);
-      } catch (e) {
-        setStatus({ kind: 'err', text: e instanceof Error ? e.message : 'could not talk to the companion app' });
+        const v = Object.fromEntries(entries.map(e => [e.key, e.value]));
+        setValues(v);
+        setServer(v.server_url ?? '');
+        setUsername(v.username ?? '');
+      } catch (err) {
+        setStatus({ text: err instanceof Error ? err.message : String(err), kind: 'err' });
+      } finally {
+        setLoaded(true);
       }
     })();
     return () => {
-      if (qcTimer.current !== null) window.clearInterval(qcTimer.current);
+      quickCancel.current = true;
     };
   }, []);
 
-  const cleanServer = (s: string): string => s.trim().replace(/\/+$/, '');
+  const signedIn = !!(values.access_token && values.user_id && values.server_url);
+  const deviceId = () => values.device_id || newDeviceId();
 
-  async function saveAll(serverUrl: string, token: string, userId: string, userName: string): Promise<void> {
-    await settings.config.set('server_url', serverUrl);
-    await settings.config.set('api_key', token);
-    await settings.config.set('user_id', userId);
-    await settings.config.set('creds_ts', String(Date.now()));
-    setSavedFor(`${userName} @ ${serverUrl}`);
+  async function save(next: Values) {
+    for (const [k, v] of Object.entries(next)) {
+      if (v === '') await settings.config.delete(k).catch(() => settings.config.set(k, ''));
+      else await settings.config.set(k, v);
+    }
+    setValues(prev => ({ ...prev, ...next }));
   }
 
-  async function connectWithPassword(): Promise<void> {
-    const srv = cleanServer(server);
-    if (!srv || !username.trim()) {
-      setStatus({ kind: 'err', text: 'enter the server URL and your Jellyfin username first.' });
-      return;
+  async function checkServer(): Promise<string | null> {
+    const url = normalizeServerUrl(server);
+    if (!url) {
+      setStatus({ text: 'Enter your Jellyfin server address first.', kind: 'err' });
+      return null;
     }
-    setBusy(true);
-    setStatus({ kind: 'info', text: 'signing in…' });
     try {
-      const data = (await postJson(
-        `${srv}/Users/AuthenticateByName`,
-        { Username: username.trim(), Pw: password },
-        { Authorization: authHeader(deviceId || 'finch-settings') },
-      )) as { AccessToken: string; User: { Id: string; Name: string } };
-      if (!data.AccessToken) throw new Error('the server did not return a token.');
-      await saveAll(srv, data.AccessToken, data.User.Id, data.User.Name);
-      setStatus({ kind: 'ok', text: `signed in as ${data.User.Name}. Finch on the Car Thing will pick this up.` });
-    } catch (e) {
-      setStatus({ kind: 'err', text: e instanceof Error ? e.message : 'sign-in failed.' });
+      const info = await call<{ ServerName?: string; Version?: string; ProductName?: string }>(
+        url,
+        '/System/Info/Public',
+        deviceId(),
+      );
+      if (!info || (!info.Version && !info.ServerName)) throw new Error("That address doesn't look like a Jellyfin server.");
+      setServerInfo(`${info.ServerName ?? 'Jellyfin'} · ${info.ProductName ?? 'Jellyfin Server'} ${info.Version ?? ''}`.trim());
+      setServer(url);
+      return url;
+    } catch (err) {
+      setServerInfo(null);
+      setStatus({ text: err instanceof Error ? err.message : String(err), kind: 'err' });
+      return null;
+    }
+  }
+
+  async function finish(url: string, auth: AuthResult, devId: string) {
+    await save({
+      server_url: url,
+      username: auth.User.Name,
+      access_token: auth.AccessToken,
+      user_id: auth.User.Id,
+      device_id: devId,
+    });
+    setPassword('');
+    setStatus({ text: `Signed in as ${auth.User.Name}. Your Car Thing is ready.`, kind: 'ok' });
+  }
+
+  async function signInPassword(e: Event) {
+    e.preventDefault();
+    setBusy(true);
+    setStatus({ text: 'Signing in…', kind: 'info' });
+    try {
+      const url = await checkServer();
+      if (!url) return;
+      const devId = deviceId();
+      const auth = await call<AuthResult>(url, '/Users/AuthenticateByName', devId, {
+        body: { Username: username.trim(), Pw: password },
+      });
+      await finish(url, auth, devId);
+    } catch (err) {
+      setStatus({ text: err instanceof Error ? err.message : String(err), kind: 'err' });
     } finally {
       setBusy(false);
     }
   }
 
-  async function connectWithKey(): Promise<void> {
-    const srv = cleanServer(server);
-    const key = apiKey.trim();
-    if (!srv || !key) {
-      setStatus({ kind: 'err', text: 'enter the server URL and an API key first.' });
-      return;
-    }
+  async function signInQuick() {
     setBusy(true);
-    setStatus({ kind: 'info', text: 'testing the API key…' });
+    quickCancel.current = false;
+    setStatus({ text: 'Starting Quick Connect…', kind: 'info' });
     try {
-      await getJson(`${srv}/System/Info?ApiKey=${encodeURIComponent(key)}`);
-      const users = (await getJson(`${srv}/Users?ApiKey=${encodeURIComponent(key)}`)) as {
-        Id: string;
-        Name: string;
-      }[];
-      if (!users.length) throw new Error('the server returned no users.');
-      await saveAll(srv, key, users[0].Id, users[0].Name);
-      setStatus({ kind: 'ok', text: `API key works (user: ${users[0].Name}). Finch on the Car Thing will pick this up.` });
-    } catch (e) {
-      setStatus({ kind: 'err', text: e instanceof Error ? e.message : 'connection failed.' });
+      const url = await checkServer();
+      if (!url) return;
+      const devId = deviceId();
+      const init = await call<{ Secret: string; Code: string }>(url, '/QuickConnect/Initiate', devId, {
+        method: 'POST',
+      }).catch(() => {
+        throw new Error('Quick Connect is turned off on this server. Use your password instead.');
+      });
+      setQuickCode(init.Code);
+      setStatus({
+        text: 'In Jellyfin on another device, open your profile, then Quick Connect, and enter this code.',
+        kind: 'info',
+      });
+      const deadline = Date.now() + 5 * 60_000;
+      while (!quickCancel.current && Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 2500));
+        const st = await call<{ Authenticated: boolean }>(
+          url,
+          `/QuickConnect/Connect?secret=${encodeURIComponent(init.Secret)}`,
+          devId,
+        );
+        if (st?.Authenticated) {
+          const auth = await call<AuthResult>(url, '/Users/AuthenticateWithQuickConnect', devId, {
+            body: { Secret: init.Secret },
+          });
+          setQuickCode(null);
+          await finish(url, auth, devId);
+          return;
+        }
+      }
+      if (!quickCancel.current) setStatus({ text: 'The code expired. Try again.', kind: 'err' });
+      setQuickCode(null);
+    } catch (err) {
+      setQuickCode(null);
+      setStatus({ text: err instanceof Error ? err.message : String(err), kind: 'err' });
     } finally {
       setBusy(false);
     }
   }
 
-  function stopQcPoll(): void {
-    if (qcTimer.current !== null) {
-      window.clearInterval(qcTimer.current);
-      qcTimer.current = null;
-    }
-  }
-
-  // Quick Connect: Jellyfin shows nothing to type on the device — the phone
-  // gets a 6-digit code, the user approves it in Jellyfin, and the phone
-  // trades it for a token. No token is needed for these three calls, but
-  // Jellyfin still requires the client identification header — without it
-  // the server throws and answers 400 "Error processing request."
-  const qcHeaders = (): Record<string, string> => ({
-    Authorization: authHeader(deviceId || 'finch-settings'),
-  });
-
-  async function startQuickConnect(): Promise<void> {
-    const srv = cleanServer(server);
-    if (!srv) {
-      setStatus({ kind: 'err', text: 'enter the server URL first.' });
-      return;
-    }
+  async function signInApiKey(e: Event) {
+    e.preventDefault();
     setBusy(true);
-    setStatus({ kind: 'info', text: 'asking Jellyfin for a code…' });
+    setStatus({ text: 'Checking the API key…', kind: 'info' });
     try {
-      const init = (await postJson(`${srv}/QuickConnect/Initiate`, undefined, qcHeaders())) as {
-        Secret: string;
-        Code: string;
-      };
-      if (!init.Secret || !init.Code) throw new Error('the server did not return a Quick Connect code.');
-      setQcCode(init.Code);
-      
-      setBusy(false);
-      setStatus({ kind: 'info', text: 'enter the code in Jellyfin (user menu → Quick Connect) and approve it.' });
-      let tries = 0;
-      stopQcPoll();
-      qcTimer.current = window.setInterval(() => {
-        void (async () => {
-          tries += 1;
-          try {
-            const poll = (await getJson(
-              `${srv}/QuickConnect/Connect?Secret=${encodeURIComponent(init.Secret)}`,
-              qcHeaders(),
-            )) as { Authenticated?: boolean };
-            if (poll.Authenticated === true) {
-              stopQcPoll();
-              setStatus({ kind: 'info', text: 'code approved — finishing sign-in…' });
-              const auth = (await postJson(
-                `${srv}/Users/AuthenticateWithQuickConnect`,
-                { Secret: init.Secret },
-                qcHeaders(),
-              )) as {
-                AccessToken: string;
-                User: { Id: string; Name: string };
-              };
-              if (!auth.AccessToken || !auth.User?.Id) throw new Error('the server did not return a token.');
-              await saveAll(srv, auth.AccessToken, auth.User.Id, auth.User.Name);
-              setQcCode(null);
-              
-              setStatus({
-                kind: 'ok',
-                text: `signed in as ${auth.User.Name} via Quick Connect. Finch on the Car Thing will pick this up.`,
-              });
-            } else if (tries >= 100) {
-              stopQcPoll();
-              setQcCode(null);
-              
-              setStatus({ kind: 'err', text: 'timed out waiting for approval. Tap “Get a code” to try again.' });
-            }
-          } catch (e) {
-            stopQcPoll();
-            setQcCode(null);
-            
-            setStatus({ kind: 'err', text: qcError(e) });
-          }
-        })();
-      }, 3000);
-    } catch (e) {
-      setBusy(false);
-      setStatus({ kind: 'err', text: qcError(e) });
-    }
-  }
-
-  function cancelQuickConnect(): void {
-    stopQcPoll();
-    setQcCode(null);
-    
-    setBusy(false);
-    setStatus(null);
-  }
-
-  async function signOut(): Promise<void> {
-    stopQcPoll();
-    setBusy(true);
-    try {
-      await settings.config.set('server_url', '');
-      await settings.config.set('api_key', '');
-      await settings.config.set('user_id', '');
-      await settings.config.set('creds_ts', String(Date.now()));
-      setSavedFor('');
+      const url = await checkServer();
+      if (!url) return;
+      const devId = deviceId();
+      const key = apiKey.trim();
+      const users = await call<{ Id: string; Name: string }[]>(url, '/Users', devId, { token: key });
+      const user = users.find(u => u.Name.toLowerCase() === username.trim().toLowerCase());
+      if (!user) throw new Error(`No user named "${username.trim()}" on this server.`);
+      await finish(url, { AccessToken: key, User: user }, devId);
       setApiKey('');
-      setStatus({ kind: 'info', text: 'signed out — saved credentials cleared.' });
-    } catch (e) {
-      setStatus({ kind: 'err', text: e instanceof Error ? e.message : 'could not clear credentials.' });
+    } catch (err) {
+      setStatus({ text: err instanceof Error ? err.message : String(err), kind: 'err' });
     } finally {
       setBusy(false);
     }
   }
 
-  // Quick Connect needs Jellyfin 10.8+ with the feature enabled. Anything
-  // else answers 404 here — say so plainly instead of "server error 404".
-  function qcError(e: unknown): string {
-    const msg = e instanceof Error ? e.message : 'Quick Connect failed.';
-    if (/\b404\b/.test(msg)) {
-      return 'this server does not support Quick Connect (needs Jellyfin 10.8+ with Quick Connect enabled). Use the API key instead.';
+  async function signOut() {
+    setBusy(true);
+    try {
+      if (values.server_url && values.access_token) {
+        await call(values.server_url, '/Sessions/Logout', values.device_id || 'x', {
+          method: 'POST',
+          token: values.access_token,
+        }).catch(() => {});
+      }
+      await save({ access_token: '', user_id: '' });
+      setStatus({ text: 'Signed out.', kind: 'info' });
+    } finally {
+      setBusy(false);
     }
-    return msg;
   }
+
+  if (!loaded) return <main><p class="hint">Loading…</p></main>;
 
   return (
     <main>
-      <h1>Finch settings</h1>
-      <p className="hint">Connect Finch to your Jellyfin server. The Car Thing reads these credentials.</p>
-      {savedFor ? <div className="saved">currently saved: {savedFor}</div> : null}
+      <header class="brand">
+        <img src={ICON} alt="" width={44} height={44} />
+        <div>
+          <h1>{ctx?.name ?? APP_NAME}</h1>
+          <p class="hint">Jellyfin remote for your Car Thing · v{ctx?.version ?? APP_VERSION}</p>
+        </div>
+      </header>
 
-      <section>
-        <h2>Server</h2>
-        <label htmlFor="server">Jellyfin server URL</label>
-        <input
-          id="server"
-          value={server}
-          onChange={e => setServer(e.target.value)}
-          placeholder="https://jellyfin.example.com"
-          inputMode="url"
-          autoCapitalize="off"
-          autoCorrect="off"
-        />
-      </section>
-
-      <section>
-        <h2>Sign in with username &amp; password</h2>
-        <label htmlFor="username">Username</label>
-        <input id="username" value={username} onChange={e => setUsername(e.target.value)} autoCapitalize="off" autoCorrect="off" />
-        <label htmlFor="password">Password</label>
-        <input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} />
-        <button type="button" className="primary" disabled={busy} onClick={connectWithPassword}>
-          Connect
-        </button>
-      </section>
-
-      <section>
-        <h2>Or paste an API key</h2>
-        <p className="hint">From the Jellyfin dashboard under API Keys. The server URL above still applies.</p>
-        <label htmlFor="apikey">API key</label>
-        <input id="apikey" value={apiKey} onChange={e => setApiKey(e.target.value)} autoCapitalize="off" autoCorrect="off" />
-        <button type="button" className="primary" disabled={busy} onClick={connectWithKey}>
-          Test &amp; save
-        </button>
-      </section>
-
-      <section>
-        <h2>Or link with Quick Connect</h2>
-        <p className="hint">
-          No typing passwords or keys: get a 6-digit code, enter it in Jellyfin (user menu → Quick Connect),
-          and approve it. Uses the server URL above.
-        </p>
-        {qcCode ? (
-          <div className="qc-code">
-            <div className="qc-label">Enter this code in Jellyfin</div>
-            <div className="qc-digits">{qcCode}</div>
-            <div className="hint">Waiting for approval…</div>
-            <button type="button" onClick={cancelQuickConnect}>
-              Cancel
+      {signedIn ? (
+        <section class="card ok">
+          <strong>Signed in as {values.username || 'your account'}</strong>
+          <p class="hint url">{values.server_url}</p>
+          <div class="row">
+            <button type="button" class="secondary" disabled={busy} onClick={signOut}>
+              Sign out
+            </button>
+            <button type="button" onClick={() => settings.done()}>
+              Done
             </button>
           </div>
-        ) : (
-          <button type="button" className="primary" disabled={busy} onClick={startQuickConnect}>
-            Get a code
-          </button>
-        )}
-      </section>
+        </section>
+      ) : null}
 
-      <section>
-        <h2>Sign out</h2>
-        <p className="hint">Clears the saved server URL and credentials from the Car Thing.</p>
-        <button type="button" disabled={busy} onClick={signOut}>
-          Sign out
+      <section class="card">
+        <div class="field">
+          <label for="server">Server address</label>
+          <input
+            id="server"
+            type="url"
+            inputMode="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            placeholder="http://192.168.1.20:8096"
+            value={server}
+            onInput={e => {
+              setServer((e.target as HTMLInputElement).value);
+              setServerInfo(null);
+            }}
+          />
+          {serverInfo ? <span class="good">✓ {serverInfo}</span> : null}
+        </div>
+        <button type="button" class="secondary small" disabled={busy} onClick={() => void checkServer()}>
+          Test connection
         </button>
+        <p class="hint">
+          Your phone carries all of the Car Thing's traffic, so use an address your phone can reach: your home
+          network address, or a public HTTPS address if you want it on the road.
+        </p>
       </section>
 
-      {status ? <div className={`status ${status.kind}`}>{status.text}</div> : null}
+      <div class="tabs">
+        {(
+          [
+            ['password', 'Password'],
+            ['quick', 'Quick Connect'],
+            ['apikey', 'API key'],
+          ] as [Mode, string][]
+        ).map(([m, label]) => (
+          <button type="button" key={m} class={mode === m ? 'tab on' : 'tab'} onClick={() => setMode(m)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'password' ? (
+        <form class="card" onSubmit={signInPassword}>
+          <div class="field">
+            <label for="user">Username</label>
+            <input
+              id="user"
+              autoCapitalize="off"
+              autoCorrect="off"
+              value={username}
+              onInput={e => setUsername((e.target as HTMLInputElement).value)}
+            />
+          </div>
+          <div class="field">
+            <label for="pw">Password</label>
+            <input id="pw" type="password" value={password} onInput={e => setPassword((e.target as HTMLInputElement).value)} />
+          </div>
+          <button type="submit" disabled={busy || !username.trim()}>
+            {signedIn ? 'Sign in again' : 'Sign in'}
+          </button>
+          <p class="hint">Only the access token is saved, never your password.</p>
+        </form>
+      ) : null}
+
+      {mode === 'quick' ? (
+        <section class="card">
+          {quickCode ? (
+            <div class="code">{quickCode}</div>
+          ) : (
+            <p class="hint">Sign in without typing a password. You approve the code from any device already signed in.</p>
+          )}
+          <div class="row">
+            <button type="button" disabled={busy} onClick={() => void signInQuick()}>
+              {quickCode ? 'Waiting for approval…' : 'Get a code'}
+            </button>
+            {quickCode ? (
+              <button
+                type="button"
+                class="secondary"
+                onClick={() => {
+                  quickCancel.current = true;
+                  setQuickCode(null);
+                  setStatus(null);
+                }}
+              >
+                Cancel
+              </button>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {mode === 'apikey' ? (
+        <form class="card" onSubmit={signInApiKey}>
+          <div class="field">
+            <label for="key">API key</label>
+            <input
+              id="key"
+              type="password"
+              autoCapitalize="off"
+              value={apiKey}
+              onInput={e => setApiKey((e.target as HTMLInputElement).value)}
+            />
+          </div>
+          <div class="field">
+            <label for="user2">Play as user</label>
+            <input
+              id="user2"
+              autoCapitalize="off"
+              autoCorrect="off"
+              value={username}
+              onInput={e => setUsername((e.target as HTMLInputElement).value)}
+            />
+          </div>
+          <button type="submit" disabled={busy || !apiKey.trim() || !username.trim()}>
+            Save API key
+          </button>
+          <p class="hint">Create one in Jellyfin's Dashboard, under API Keys. Admins only.</p>
+        </form>
+      ) : null}
+
+      {status ? <p class={`status ${status.kind}`}>{status.text}</p> : null}
+
+      {/* 1.4.4: display options (live: the Car Thing reads config changes as they happen) */}
+      <section class="card">
+        <label class="toggle">
+          <div>
+            <div class="t">Hide tab bar until a preset button is pressed</div>
+            <div class="s">The tabs show for a moment when you press 1–4, then fade away. Turn off to keep them on screen.</div>
+          </div>
+          <input
+            type="checkbox"
+            checked={values.tabs_autohide !== 'false'}
+            onChange={e => void save({ tabs_autohide: (e.target as HTMLInputElement).checked ? 'true' : 'false' })}
+          />
+        </label>
+      </section>
+
+      <section class="help">
+        <h2>On the Car Thing</h2>
+        <ul>
+          <li><b>1</b> Home · <b>2</b> Playlists · <b>3</b> Albums · <b>4</b> Library</li>
+          <li>The tab bar appears when you press a preset button, then fades (unless you turn hiding off above)</li>
+          <li>Hold <b>1</b> for Now Playing, <b>3</b> to pick the player, <b>4</b> to favorite the song</li>
+          <li><b>Knob</b> scrolls lists, and turns this phone's volume on Now Playing (hold it to turn the volume anywhere); the phone shows its own volume overlay</li>
+          <li><b>Knob press</b> opens the highlighted item, or plays/pauses on Now Playing · <b>Back</b> goes back</li>
+          <li>Music plays on a Jellyfin player you choose: Finamp or the Jellyfin app on this phone, a TV, or a computer.</li>
+        </ul>
+      </section>
     </main>
   );
 }
 
-createRoot(document.getElementById('root')!).render(<Settings />);
+const ICON = LOGO_URL;
+
+render(<Settings />, document.getElementById('root')!);

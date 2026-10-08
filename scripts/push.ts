@@ -1,33 +1,14 @@
 #!/usr/bin/env bun
-// Generated from @bridgething/webapp-shared.
-// ../webapp-shared/src/push.ts
-import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-
-// ../webapp-shared/src/gateway.ts
+// Generated from @bridgething/webapp-shared. It is yours now; tweak it freely.
 import { decode as msgpackDecode, encode as msgpackEncode } from '@msgpack/msgpack';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { lookup } from 'node:dns/promises';
-import { isIP } from 'node:net';
-var DEFAULT_DEVICE_HOST = 'bridgething.local';
-function deviceHostName(host) {
-  return host ?? process.env.SUPERBIRD_HOST ?? DEFAULT_DEVICE_HOST;
-}
-async function resolveGatewayTarget(host) {
-  const name = deviceHostName(host);
-  const port = Number(process.env.BRIDGETHING_GATEWAY_PORT ?? 8892);
-  return { name, host: await resolveHost(name), port };
-}
-async function resolveHost(name) {
-  if (isIP(name)) return name;
-  try {
-    return (await lookup(name, { family: 4 })).address;
-  } catch {
-    return name;
-  }
-}
-function parseUuid(s) {
+import { existsSync, openSync, readFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+
+function parseUuid(s: string): Uint8Array {
   const hex = s.replace(/-/g, '').toLowerCase();
   if (hex.length !== 32 || !/^[0-9a-f]+$/.test(hex)) {
     throw new Error(`invalid uuid: ${s}`);
@@ -36,25 +17,30 @@ function parseUuid(s) {
   for (let i = 0; i < 16; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   return out;
 }
-function freshMsgId() {
+
+function freshMsgId(): Uint8Array {
   return parseUuid(randomUUID());
 }
-function uuidToString(bytes) {
+
+function uuidToString(bytes: Uint8Array): string {
   const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
-function bundleDirName(id) {
+
+function bundleDirName(id: string): string {
   const hex = id.replace(/-/g, '').toLowerCase();
   if (!/^[0-9a-f]{32}$/.test(hex)) throw new Error(`manifest id is not a uuid: ${id}`);
   return hex;
 }
-var FRAME_HEADER_LENGTH = 16;
-var FRAME_MAGIC = 57005;
-var FRAME_VERSION = 2;
-var COMPRESSION_NONE = 0;
-var ENCODING_MSGPACK = 0;
-var PRIORITY_NORMAL = 0;
-function writeFrameHeader(payloadLength) {
+
+const FRAME_HEADER_LENGTH = 16;
+const FRAME_MAGIC = 0xdead;
+const FRAME_VERSION = 2;
+const COMPRESSION_NONE = 0x00;
+const ENCODING_MSGPACK = 0x00;
+const PRIORITY_NORMAL = 0x00;
+
+function writeFrameHeader(payloadLength: number): Uint8Array<ArrayBuffer> {
   const buf = new Uint8Array(FRAME_HEADER_LENGTH);
   const view = new DataView(buf.buffer);
   view.setUint16(0, FRAME_MAGIC, false);
@@ -65,7 +51,8 @@ function writeFrameHeader(payloadLength) {
   view.setBigUint64(8, BigInt(payloadLength), false);
   return buf;
 }
-function frame(message) {
+
+function frame(message: unknown): Uint8Array<ArrayBuffer> {
   const body = msgpackEncode(message);
   const header = writeFrameHeader(body.length);
   const out = new Uint8Array(header.length + body.length);
@@ -74,16 +61,20 @@ function frame(message) {
   return out;
 }
 
+type GatewayMsg = { id: Uint8Array; meta: unknown; data: unknown };
+
 class FrameAccumulator {
-  buffer = new Uint8Array(0);
-  append(chunk) {
+  private buffer = new Uint8Array(0);
+
+  append(chunk: Uint8Array): void {
     if (chunk.length === 0) return;
     const merged = new Uint8Array(this.buffer.length + chunk.length);
     merged.set(this.buffer, 0);
     merged.set(chunk, this.buffer.length);
     this.buffer = merged;
   }
-  next() {
+
+  next(): GatewayMsg | null {
     if (this.buffer.length < FRAME_HEADER_LENGTH) return null;
     const view = new DataView(this.buffer.buffer, this.buffer.byteOffset, this.buffer.byteLength);
     const magic = view.getUint16(0, false);
@@ -100,211 +91,199 @@ class FrameAccumulator {
     const total = FRAME_HEADER_LENGTH + len;
     if (this.buffer.length < total) return null;
     const body = this.buffer.subarray(FRAME_HEADER_LENGTH, total);
-    const decoded = msgpackDecode(body);
+    const decoded = msgpackDecode(body) as GatewayMsg;
     this.buffer = this.buffer.slice(total);
     return decoded;
   }
 }
-var OPEN_TIMEOUT_MS = 15000;
-var REQUEST_TIMEOUT_MS = 15000;
 
-class GatewayLink {
-  ws;
-  url;
-  acc = new FrameAccumulator();
-  pending = new Map();
-  handlers = new Set();
-  closers = new Set();
-  closed = null;
-  constructor(ws, url) {
-    this.ws = ws;
-    this.url = url;
-    ws.addEventListener('message', event => this.receive(event.data));
-    ws.addEventListener('close', event => this.finish(`gateway closed (code ${event.code})`));
-    ws.addEventListener('error', () => this.finish('gateway socket error'));
-  }
-  static open(target) {
-    const url = `ws://${target.host}:${target.port}/`;
-    return new Promise((res, rej) => {
-      const ws = new WebSocket(url);
-      ws.binaryType = 'arraybuffer';
-      const timer = setTimeout(() => {
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+const ANNOUNCE_DATA = {
+  type: 'capabilities',
+  data: {
+    event: 'announce',
+    data: {
+      gateway: {
+        address: '',
+        name: 'bridgething-webapp-push',
+        osName: 'host',
+        appName: 'bridgething-webapp-push',
+        appVersion: '0.1.0',
+        adapterVersion: 'host',
+        libVersion: 'v0',
+        libbridgethingVersion: 'v0',
+      },
+      uriSchemes: [],
+      network: { kind: 'unknown', metered: false },
+      available: { geo: false, notifications: false, netFetch: false, netWs: false, audioTts: false },
+      audio: { earcons: [], voices: [] },
+    },
+  },
+};
+
+function sendRequest(host: string, port: number, data: unknown): Promise<unknown | null> {
+  const url = `ws://${host}:${port}/`;
+  const ws = new WebSocket(url);
+  ws.binaryType = 'arraybuffer';
+  const acc = new FrameAccumulator();
+  const requestId = freshMsgId();
+  let sent = false;
+
+  return new Promise<unknown | null>((res, rej) => {
+    const overall = setTimeout(() => {
+      try {
         ws.close();
-        rej(new Error(`gateway connect timed out (${OPEN_TIMEOUT_MS / 1000}s) against ${url}`));
-      }, OPEN_TIMEOUT_MS);
-      ws.addEventListener('open', () => {
-        clearTimeout(timer);
-        res(new GatewayLink(ws, url));
-      });
-      ws.addEventListener('error', () => {
-        clearTimeout(timer);
-        rej(new Error(`could not reach the gateway at ${url}`));
-      });
-      ws.addEventListener('close', event => {
-        clearTimeout(timer);
-        rej(new Error(`gateway closed before opening (code ${event.code})`));
-      });
+      } catch {}
+      rej(new Error(`gateway request timed out (15s) against ${url}`));
+    }, 15_000);
+
+    const finish = (fn: () => void) => {
+      clearTimeout(overall);
+      try {
+        ws.close();
+      } catch {}
+      fn();
+    };
+
+    ws.addEventListener('open', () => {
+      ws.send(frame({ id: freshMsgId(), meta: { kind: 'event' }, data: ANNOUNCE_DATA }));
+      ws.send(frame({ id: requestId, meta: { kind: 'request' }, data }));
+      sent = true;
     });
-  }
-  get isOpen() {
-    return this.closed === null;
-  }
-  onMessage(handler) {
-    this.handlers.add(handler);
-    return () => this.handlers.delete(handler);
-  }
-  onClose(handler) {
-    this.closers.add(handler);
-    return () => this.closers.delete(handler);
-  }
-  event(data) {
-    this.write({ id: freshMsgId(), meta: { kind: 'event' }, data });
-  }
-  request(kind, data) {
-    if (this.closed !== null) return Promise.reject(new Error(this.closed));
-    const id = freshMsgId();
-    const key = uuidToString(id);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(key);
-        reject(new Error(`gateway ${kind} timed out (${REQUEST_TIMEOUT_MS / 1000}s) against ${this.url}`));
-      }, REQUEST_TIMEOUT_MS);
-      this.pending.set(key, { resolve, reject, timer });
-      this.write({ id, meta: { kind }, data });
+
+    ws.addEventListener('message', (event: MessageEvent) => {
+      const raw = event.data;
+      const bytes = raw instanceof ArrayBuffer ? new Uint8Array(raw) : raw instanceof Uint8Array ? raw : null;
+      if (!bytes) return;
+      try {
+        acc.append(bytes);
+        for (let msg = acc.next(); msg !== null; msg = acc.next()) {
+          const meta = msg.meta as { kind?: string; data?: { requestId?: Uint8Array } };
+          const respId = meta?.kind === 'response' ? meta.data?.requestId : undefined;
+          if (respId && bytesEqual(respId, requestId)) {
+            finish(() => res(msg.data));
+            return;
+          }
+        }
+      } catch (err) {
+        finish(() => rej(err instanceof Error ? err : new Error(String(err))));
+      }
     });
-  }
-  close() {
-    try {
-      this.ws.close();
-    } catch {}
-    this.finish('gateway link closed');
-  }
-  write(message) {
-    if (this.closed !== null) return;
-    this.ws.send(frame(message));
-  }
-  receive(raw) {
-    const bytes = raw instanceof ArrayBuffer ? new Uint8Array(raw) : raw instanceof Uint8Array ? raw : null;
-    if (!bytes) return;
-    try {
-      this.acc.append(bytes);
-      for (let msg = this.acc.next(); msg !== null; msg = this.acc.next()) this.dispatch(msg);
-    } catch (err) {
-      this.finish(err instanceof Error ? err.message : String(err));
-      this.close();
-    }
-  }
-  dispatch(msg) {
-    if (msg.meta?.kind === 'response') {
-      const waiting = this.pending.get(uuidToString(msg.meta.data.requestId));
-      if (waiting) {
-        this.pending.delete(uuidToString(msg.meta.data.requestId));
-        clearTimeout(waiting.timer);
-        waiting.resolve(msg.data);
+
+    ws.addEventListener('close', (event: CloseEvent) => {
+      clearTimeout(overall);
+      if (sent && (event.code === 1000 || event.code === 1005)) {
+        res(null);
         return;
       }
-    }
-    for (const handler of [...this.handlers]) handler(msg.data);
-  }
-  finish(reason) {
-    if (this.closed !== null) return;
-    this.closed = reason;
-    for (const waiting of this.pending.values()) {
-      clearTimeout(waiting.timer);
-      waiting.reject(new Error(reason));
-    }
-    this.pending.clear();
-    for (const closer of [...this.closers]) closer(reason);
-  }
+      rej(new Error(`gateway ws closed before response (code ${event.code})`));
+    });
+  });
 }
-async function exchange(target, kind, data) {
-  const link = await GatewayLink.open(target);
-  try {
-    return await link.request(kind, data);
-  } finally {
-    link.close();
-  }
-}
-function interpret(data, expected) {
-  const outer = data;
+
+type Outcome<T> = { ok: true; value: T | null } | { ok: false; reason: string };
+
+function interpret<T>(data: unknown | null, expected: string): Outcome<T> {
+  if (data === null) return { ok: true, value: null };
+  const outer = data as { type?: string; data?: unknown };
   if (outer?.type !== 'webapp') {
     return { ok: false, reason: `unexpected response type ${JSON.stringify(outer?.type)}` };
   }
-  const inner = outer.data;
-  if (inner?.event === expected) return { ok: true, value: inner.data };
+  const inner = outer.data as { event?: string; data?: unknown };
+  if (inner?.event === expected) return { ok: true, value: inner.data as T };
   if (inner?.event === 'webappError') {
-    const err = inner.data;
+    const err = inner.data as { type?: string; data?: Record<string, unknown> } | undefined;
     return { ok: false, reason: `daemon refused: ${err?.type} ${JSON.stringify(err?.data ?? {})}` };
   }
   return { ok: false, reason: `unexpected webapp response variant ${JSON.stringify(inner?.event)}` };
 }
-async function switchTo(target, id) {
+
+type ActiveWebapp = { id?: Uint8Array | null; name?: string | null };
+type Slots = { launcher?: Uint8Array | null; overlay?: Uint8Array | null };
+type Slot = 'launcher' | 'overlay';
+
+async function switchTo(host: string, port: number, id: string): Promise<Outcome<ActiveWebapp>> {
   const data = { type: 'webapp', data: { event: 'switchTo', data: { id: parseUuid(id) } } };
-  return interpret(await exchange(target, 'request', data), 'switched');
+  return interpret<ActiveWebapp>(await sendRequest(host, port, data), 'switched');
 }
-async function setSlot(target, slot, id) {
+
+async function setSlot(host: string, port: number, slot: Slot, id: string | null): Promise<Outcome<Slots>> {
   const data = {
     type: 'webapp',
     data: { event: 'setSlot', data: { slot, id: id === null ? null : parseUuid(id) } },
   };
-  return interpret(await exchange(target, 'request', data), 'slots');
+  return interpret<Slots>(await sendRequest(host, port, data), 'slots');
 }
 
-// ../webapp-shared/src/push.ts
-var WEBAPP_ROOT = '/var/bridgething/webapps';
-var SSH_OPTS = ['-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=ERROR'];
-function run(cmd, args, label, cwd) {
-  return new Promise((res, rej) => {
-    const child = spawn(cmd, args, { stdio: 'inherit', cwd });
+const WEBAPP_ROOT = '/var/bridgething/webapps';
+const SSH_OPTS = ['-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=ERROR'];
+
+function run(cmd: string, args: string[], label: string, cwd?: string, stdinFile?: string): Promise<void> {
+  return new Promise<void>((res, rej) => {
+    const fd = stdinFile ? openSync(stdinFile, 'r') : undefined;
+    const child = spawn(cmd, args, { stdio: fd !== undefined ? [fd, 'inherit', 'inherit'] : 'inherit', cwd });
     child.on('exit', code => (code === 0 ? res() : rej(new Error(`${label} exited ${code}`))));
     child.on('error', rej);
   });
 }
-function pipeThrough(producer, consumer, label) {
-  return new Promise((res, rej) => {
-    const source = spawn(producer.cmd, producer.args, { stdio: ['ignore', 'pipe', 'inherit'] });
-    const sink = spawn(consumer.cmd, consumer.args, { stdio: ['pipe', 'inherit', 'inherit'] });
-    source.stdout.pipe(sink.stdin);
-    source.on('error', rej);
-    sink.on('error', rej);
-    source.on('exit', code => {
-      if (code !== 0) rej(new Error(`${producer.cmd} exited ${code}`));
-    });
-    sink.on('exit', code => (code === 0 ? res() : rej(new Error(`${label} exited ${code}`))));
-  });
-}
-async function pushBundle(localDir, host, dirName) {
+
+async function pushBundle(localDir: string, host: string, dirName: string): Promise<void> {
   const staged = `.push.${dirName}`;
-  console.log(`copying ${localDir} -> root@${host}:${WEBAPP_ROOT}/${dirName}/`);
-  const receive = [
-    'set -e',
-    `cd ${WEBAPP_ROOT}`,
-    `rm -rf ${staged} .old.${dirName}`,
-    `mkdir -p ${staged}`,
-    `tar -xzf - -C ${staged}`,
-    `if [ -d ${dirName} ]; then mv ${dirName} .old.${dirName}; fi`,
-    `mv ${staged} ${dirName}`,
-    `rm -rf .old.${dirName}`,
-  ].join('; ');
-  await pipeThrough(
-    { cmd: 'tar', args: ['-czf', '-', '-C', localDir, '.'] },
-    { cmd: 'ssh', args: [...SSH_OPTS, `root@${host}`, receive] },
-    'ssh',
-  );
+  const tarball = join(tmpdir(), `${dirName}.tgz`);
+  console.log(`tar+ssh ${localDir} -> root@${host}:${WEBAPP_ROOT}/${dirName}/`);
+  // the device has no rsync; stream a tarball over ssh instead (same atomic swap)
+  await run('tar', ['-czf', tarball, '-C', localDir, '.'], 'tar');
+  try {
+    const extract = `rm -rf ${WEBAPP_ROOT}/${staged} && mkdir -p ${WEBAPP_ROOT}/${staged} && tar -xzf - -C ${WEBAPP_ROOT}/${staged}`;
+    await run('ssh', [...SSH_OPTS, `root@${host}`, extract], 'ssh', undefined, tarball);
+    const swap = [
+      'set -e',
+      `cd ${WEBAPP_ROOT}`,
+      `rm -rf .old.${dirName}`,
+      `if [ -d ${dirName} ]; then mv ${dirName} .old.${dirName}; fi`,
+      `mv ${staged} ${dirName}`,
+      `rm -rf .old.${dirName}`,
+    ].join('; ');
+    await run('ssh', [...SSH_OPTS, `root@${host}`, swap], 'ssh');
+  } finally {
+    await rm(tarball, { force: true });
+  }
 }
-function buildBundle(repoDir) {
+
+function buildBundle(repoDir: string): Promise<void> {
   console.log('bun run build');
   return run('bun', ['run', 'build'], 'bun run build', repoDir);
 }
-function declaredSlots(manifest) {
-  const slots = [];
+
+
+type Manifest = { id?: string; name?: string; role?: string; overlay?: string };
+
+function declaredSlots(manifest: Manifest): Slot[] {
+  const slots: Slot[] = [];
   if (manifest.role === 'launcher') slots.push('launcher');
   if (manifest.overlay) slots.push('overlay');
   return slots;
 }
-function parseArgs(argv) {
-  const args = {
+
+type Args = {
+  host: string;
+  port: number;
+  skipBuild: boolean;
+  claimSlots: boolean;
+  release: boolean;
+  switchAfter: boolean | null;
+};
+
+function parseArgs(argv: string[]): Args {
+  const args: Args = {
     host: process.env.SUPERBIRD_HOST ?? 'bridgething.local',
+    port: Number(process.env.BRIDGETHING_GATEWAY_PORT ?? 8892),
     skipBuild: process.env.SKIP_BUILD === '1',
     claimSlots: true,
     release: false,
@@ -324,10 +303,11 @@ function parseArgs(argv) {
   }
   return args;
 }
-function printHelp() {
+
+function printHelp(): void {
   console.log(`Usage: bun run push [host] [options]
 
-Build, copy dist/ onto a connected Car Thing, and make it visible.
+Build, push dist/ onto a connected Car Thing, and make it visible.
 
 A plain webapp becomes the active app. A launcher also takes the home-screen
 slot; an overlay takes the overlay slot and the daemon reloads the kiosk so it
@@ -340,54 +320,68 @@ Options:
   --no-slot      push without claiming any slot.
   --switch       switch to this bundle even if it is overlay-only.
   --no-switch    push without switching.
-  --skip-build   copy whatever is already in dist/.
+  --skip-build   push whatever is already in dist/.
 
 Env: SUPERBIRD_HOST, BRIDGETHING_GATEWAY_PORT, SKIP_BUILD=1
 `);
 }
-async function bridgethingPush({ scriptUrl }) {
+
+export type BridgethingPushOptions = {
+  scriptUrl: string;
+};
+
+export async function bridgethingPush({ scriptUrl }: BridgethingPushOptions): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const target = await resolveGatewayTarget(args.host);
+
   const repoDir = resolve(dirname(new URL(scriptUrl).pathname), '..');
   const distDir = resolve(repoDir, 'dist');
   const manifestPath = resolve(distDir, 'manifest.json');
-  const readManifest = () => {
+
+  const readManifest = (): Manifest => {
     if (!existsSync(manifestPath)) {
       throw new Error(`no manifest.json at ${manifestPath}; run 'bun run build' first or drop --skip-build`);
     }
-    const parsed = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as Manifest;
     if (!parsed.id) throw new Error(`${manifestPath} has no 'id' field`);
     return parsed;
   };
+
   if (args.release) {
-    const manifest2 = readManifest();
-    for (const slot of declaredSlots(manifest2)) {
-      const result = await setSlot(target, slot, null);
+    const manifest = readManifest();
+    for (const slot of declaredSlots(manifest)) {
+      const result = await setSlot(args.host, args.port, slot, null);
       if (!result.ok) throw new Error(result.reason);
       console.log(`${slot} slot: reverted to the built-in one`);
     }
-    if (declaredSlots(manifest2).length === 0) console.log('this bundle declares no slots; nothing to release');
+    if (declaredSlots(manifest).length === 0) console.log('this bundle declares no slots; nothing to release');
     return;
   }
-  if (!args.skipBuild) await buildBundle(repoDir);
+
+  if (!args.skipBuild) {
+    await buildBundle(repoDir);
+  }
   const manifest = readManifest();
-  const id = manifest.id;
+  const id = manifest.id as string;
   const slots = declaredSlots(manifest);
+
   await pushBundle(distDir, args.host, bundleDirName(id));
+
   if (args.claimSlots) {
     for (const slot of slots) {
-      const result = await setSlot(target, slot, id);
+      const result = await setSlot(args.host, args.port, slot, id);
       if (!result.ok) throw new Error(result.reason);
       console.log(`${slot} slot: ${manifest.name ?? id}`);
     }
   }
+
   const overlayOnly = slots.length > 0 && slots.every(s => s === 'overlay');
   const shouldSwitch = args.switchAfter ?? !overlayOnly;
   if (!shouldSwitch) {
     console.log(overlayOnly ? 'overlay pushed; the kiosk reloaded with it injected' : 'skipping switch');
     return;
   }
-  const switched = await switchTo(target, id);
+
+  const switched = await switchTo(args.host, args.port, id);
   if (!switched.ok) throw new Error(switched.reason);
   const active = switched.value;
   if (!active) {
@@ -397,7 +391,6 @@ async function bridgethingPush({ scriptUrl }) {
   const activeStr = active.id ? uuidToString(active.id) : '(none)';
   console.log(`active webapp: ${active.name ?? '(unnamed)'} ${activeStr}`);
 }
-export { bridgethingPush };
 
 bridgethingPush({ scriptUrl: import.meta.url }).catch(err => {
   console.error(err instanceof Error ? err.message : err);

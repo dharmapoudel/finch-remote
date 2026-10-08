@@ -1,45 +1,71 @@
 {
-  "art": {
-    "heroPx": 248,
-    "thumbPx": 96
-  },
+  "id": "01a113e6-389d-737a-ac42-b50a40c4131f",
+  "name": "Finch",
+  "version": "1.4.4",
+  "description": "Jellyfin remote for the Car Thing: browse your music library and control any Jellyfin player.",
+  "icon": "icon.png",
+  "settings": "settings.html",
   "config": [
     {
+      "type": "string",
       "data": {
         "key": "server_url",
-        "label": "Jellyfin server URL (e.g. https://jellyfin.example.com or http://192.168.1.10:8096)"
-      },
-      "type": "string"
+        "label": "Jellyfin server URL (e.g. http://192.168.1.20:8096)",
+        "maxLength": 300,
+        "default": null
+      }
     },
     {
+      "type": "string",
       "data": {
-        "key": "api_key",
-        "label": "Jellyfin API key (Dashboard > API Keys), or sign in via the Finch settings page"
-      },
-      "type": "secret"
+        "key": "username",
+        "label": "Jellyfin username",
+        "maxLength": 200,
+        "default": null
+      }
     },
     {
+      "type": "secret",
+      "data": {
+        "key": "access_token",
+        "label": "Access token or API key (filled in by Sign in)",
+        "maxLength": 200,
+        "default": null
+      }
+    },
+    {
+      "type": "string",
       "data": {
         "key": "user_id",
-        "label": "Jellyfin user id (filled in automatically by the settings page sign-in)"
-      },
-      "type": "string"
+        "label": "Jellyfin user id (filled in by Sign in)",
+        "maxLength": 64,
+        "default": null
+      }
     },
     {
+      "type": "string",
       "data": {
-        "key": "creds_ts",
-        "label": "Internal: credentials timestamp, written by sign-in (do not edit)"
-      },
-      "type": "string"
+        "key": "device_id",
+        "label": "Jellyfin device id (filled in by Sign in)",
+        "maxLength": 64,
+        "default": null
+      }
+    },
+    {
+      "type": "boolean",
+      "data": {
+        "key": "tabs_autohide",
+        "label": "Hide tab bar until a preset button is pressed",
+        "default": true
+      }
     }
   ],
-  "description": "Your Jellyfin music library on the Car Thing: browse albums, artists and playlists, and play them through your phone.",
-  "icon": "icon.png",
-  "id": "01a0d158-fc62-7c3d-92bf-4acbf1a0ffa1",
-  "name": "Finch",
   "permissions": [
-    "net.fetch"
+    "net.fetch",
+    "audio"
   ],
-  "settings": "settings.html",
-  "version": "0.1.53"
+  "art": {
+    "heroPx": 280,
+    "thumbPx": 96
+  }
 }
